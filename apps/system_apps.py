@@ -802,7 +802,7 @@ class TextEditorApp(BlindApp):
         self.name = "Text Editor"
         self.description = "A simple text editor."
         self.category = "System"
-        self.help_text = "Use standard text editing shortcuts. Save or Open files. F2 reads current line. Ctrl+F to find text."
+        self.help_text = "Ctrl+O to open, Ctrl+S to save, Ctrl+Shift+S to save as, Ctrl+N for a new document. F2 reads the current line. Ctrl+F to find text."
         self.docs = "The Text Editor allows you to create, open, edit, and save text files."
         self.frame = None
         self.text_ctrl = None
@@ -892,15 +892,30 @@ class TextEditorApp(BlindApp):
     def on_save_as(self, event):
         path = self.api.save_file(self.frame, "Save Text File As",
                                   "Text files (*.txt)|*.txt|All files (*.*)|*.*")
-        if path:
-            self.current_file_path = path
+        if not path:
+            self.api.speak("Save cancelled.")
+            return
+        if os.path.exists(path):
+            dialog = wx.MessageDialog(
+                self.frame,
+                f"{os.path.basename(path)} already exists. Overwrite it?",
+                "Confirm Overwrite",
+                wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION,
+            )
             try:
-                with open(self.current_file_path, 'w', encoding='utf-8') as f:
-                    f.write(self.text_ctrl.GetValue())
-                self.frame.SetTitle(f"Text Editor - {os.path.basename(self.current_file_path)}")
-                self.api.speak(f"File saved as: {os.path.basename(self.current_file_path)}")
-            except Exception as e:
-                self.api.speak(f"Error saving file: {e}")
+                if dialog.ShowModal() != wx.ID_YES:
+                    self.api.speak("Save cancelled.")
+                    return
+            finally:
+                dialog.Destroy()
+        self.current_file_path = path
+        try:
+            with open(self.current_file_path, 'w', encoding='utf-8') as f:
+                f.write(self.text_ctrl.GetValue())
+            self.frame.SetTitle(f"Text Editor - {os.path.basename(self.current_file_path)}")
+            self.api.speak(f"File saved as: {os.path.basename(self.current_file_path)}")
+        except Exception as e:
+            self.api.speak(f"Error saving file: {e}")
 
     def on_new(self, event):
         self.text_ctrl.SetValue("")
@@ -919,6 +934,20 @@ class TextEditorApp(BlindApp):
 
     def on_frame_key(self, event):
         key = event.GetKeyCode()
+        if event.ControlDown() and not event.AltDown() and not event.ShiftDown():
+            if key == ord('O'):
+                self.on_open(event)
+                return
+            if key == ord('S'):
+                self.on_save(event)
+                return
+            if key == ord('N'):
+                self.on_new(event)
+                return
+        elif event.ControlDown() and event.ShiftDown() and not event.AltDown():
+            if key == ord('S'):
+                self.on_save_as(event)
+                return
         if key == wx.WXK_F2:
             col, line = self.text_ctrl.PositionToXY(self.text_ctrl.GetInsertionPoint())
             if line >= 0:

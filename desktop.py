@@ -14,6 +14,29 @@ from app_paths import get_data_dir
 import platform_support
 from file_dialogs import choose_file
 
+
+def split_quoted_args(text):
+    r"""Split a command line on whitespace, respecting double quotes.
+
+    Lets Recovery Console commands like COPY accept paths containing spaces:
+    COPY "C:\my folder\a.txt" out.txt
+    """
+    args = []
+    current = []
+    in_quotes = False
+    for char in text:
+        if char == '"':
+            in_quotes = not in_quotes
+        elif char == " " and not in_quotes:
+            if current:
+                args.append("".join(current))
+                current = []
+        else:
+            current.append(char)
+    if current:
+        args.append("".join(current))
+    return args
+
 class RecoveryConsole(wx.Dialog):
     def __init__(self, parent, missing_files):
         super().__init__(parent, title="PyOS Recovery Console", size=(600, 400))
@@ -46,20 +69,33 @@ class RecoveryConsole(wx.Dialog):
     def write_line(self, text):
         self.output.AppendText(text + "\n")
 
+    def _browse_for_file(self):
+        """Open a native file dialog and return the chosen path, or None."""
+        dialog = wx.FileDialog(
+            self,
+            "Locate a file",
+            wildcard="All files (*.*)|*.*",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        )
+        try:
+            return dialog.GetPath() if dialog.ShowModal() == wx.ID_OK else None
+        finally:
+            dialog.Destroy()
+
     def on_command(self, event):
-        cmd_full = self.input.GetValue().strip().lower()
+        cmd_full = self.input.GetValue().strip()
         self.input.Clear()
         if not cmd_full: return
         
         self.write_line(f"> {cmd_full}")
         parts = cmd_full.split()
-        cmd = parts[0]
+        cmd = parts[0].lower()
         args = parts[1:]
         
         from speech import engine
         
         if cmd == "help":
-            msg = "Commands: DIR, COPY, FIXBOOT, EXIT, HELP"
+            msg = "Commands: DIR, COPY, BROWSE, FIXBOOT, EXIT, HELP"
             self.write_line(msg)
             engine.speak(msg)
         elif cmd == "dir":
@@ -83,16 +119,33 @@ class RecoveryConsole(wx.Dialog):
                 engine.speak(f"Restored {count} files. Restart the system to complete repair.")
             else:
                 engine.speak("No automated fixes found.")
+        elif cmd == "browse":
+            path = self._browse_for_file()
+            if path:
+                self.write_line(path)
+                # Prefill a COPY command so the located file can be restored
+                # without retyping a long path.
+                self.input.SetValue(f'copy "{path}" ')
+                self.input.SetInsertionPointEnd()
+                engine.speak("Path inserted. Enter the destination and press Enter.")
+            else:
+                engine.speak("Browse cancelled.")
         elif cmd == "copy" or cmd == "cp":
+            args = split_quoted_args(" ".join(args))
             if len(args) < 2:
-                self.write_line("Usage: COPY [source] [destination]")
+                self.write_line('Usage: COPY "source" "destination"')
+                engine.speak("Copy usage: copy, source path in quotes, then destination.")
             else:
                 try:
                     import shutil
-                    shutil.copy(args[0], args[1])
+                    copied_to = shutil.copy(args[0], args[1])
                     self.write_line("File copied.")
-                    if args[1] in self.missing_files:
-                        self.missing_files.remove(args[1])
+                    # Match case-insensitively so the repair list clears even
+                    # when the destination was typed with different casing.
+                    copied_name = os.path.basename(copied_to).lower()
+                    for missing in self.missing_files[:]:
+                        if missing.lower() == copied_name:
+                            self.missing_files.remove(missing)
                     engine.speak("Copy successful.")
                 except Exception as e:
                     self.write_line(f"Error: {e}")
@@ -147,11 +200,7 @@ class RepairFrame(wx.Frame):
     def on_repair(self, event):
         import shutil
         for file_name in self.missing_files[:]:
-            if not self.api:
-                wx.MessageBox("File selection is unavailable during recovery.", "Repair")
-                continue
-            path = choose_file(self, self.api, "open", f"Locate {file_name}",
-                               f"{file_name}|{file_name}")
+            path = self._locate_file(file_name)
             if not path:
                 continue
             try:
@@ -170,6 +219,23 @@ class RepairFrame(wx.Frame):
             msg = f"The following critical files are still missing:\n" + "\n".join([f"- {f}" for f in self.missing_files])
             # Just a simple way to update for this demo
             wx.MessageBox(msg, "Remaining Issues", wx.OK | wx.ICON_WARNING)
+    def _locate_file(self, file_name):
+        """Open a native file dialog so the user can locate a missing file.
+
+        Uses wx.FileDialog directly instead of the PyOS picker so repair works
+        during early boot before the SystemAPI exists (api is None).
+        """
+        dialog = wx.FileDialog(
+            self,
+            f"Locate {file_name}",
+            wildcard=f"{file_name}|{file_name}|All files (*.*)|*.*",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        )
+        try:
+            return dialog.GetPath() if dialog.ShowModal() == wx.ID_OK else None
+        finally:
+            dialog.Destroy()
+
 
 class LoginFrame(wx.Frame):
     def __init__(self, api, on_success):
