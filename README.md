@@ -57,7 +57,7 @@ To enable direct NVDA support:
 1.  **Clone the repository:**
     First, clone the proj
     ```bash
-    git clone https://github.com/wasilewsk/py-os
+    git clone https://github.com/tech-master33/py-os
     cd py-os 
     ```
 

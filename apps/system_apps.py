@@ -398,7 +398,7 @@ class SettingsApp(BlindApp):
         try:
             log("Setting remote URL...")
             set_gauge(10)
-            subprocess.run(["git", "remote", "set-url", "origin", "https://github.com/wasilewsk/py-os.git"],
+            subprocess.run(["git", "remote", "set-url", "origin", "https://github.com/tech-master33/py-os.git"],
                            check=True, capture_output=True, text=True)
             set_gauge(25)
 
