@@ -318,12 +318,10 @@ class AudioRecorderApp(BlindApp):
 
     def on_browse_file(self, event=None):
         wildcard = "Audio files (*.wav;*.mp3;*.ogg;*.flac)|*.wav;*.mp3;*.ogg;*.flac"
-        dlg = wx.FileDialog(self.frame, "Choose audio file", wildcard=wildcard, style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
-        if dlg.ShowModal() == wx.ID_OK:
-            path = dlg.GetPath()
+        path = self.api.choose_file(self.frame, "open", "Choose audio file", wildcard)
+        if path:
             self.path_input.SetValue(path)
             self.load_playback_file(path)
-        dlg.Destroy()
 
     def on_load_path(self, event=None):
         self.load_playback_file(self.path_input.GetValue().strip())

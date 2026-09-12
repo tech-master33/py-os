@@ -37,7 +37,9 @@ class MyApp(BlindApp):
 | `speak(text, interrupt=True)` | Speaks text via the system's speech engine. |
 | `play_sound(sound_type)` | Plays a themed sound (`nav`, `launch`, `close`, `alert`, `startup`, etc.). |
 | `get_data_path(filename)` | Returns a path to a file in py-os's data directory. |
-| `get_vfs()` | Returns the Virtual File System kernel. **Note:** For direct host file system access, use the `os` module. |
+| `get_vfs()` | Returns the Virtual File System kernel for PyOS Drive operations. |
+| `open_file(parent, title, wildcard)` | Opens the shared PyOS file picker for the PyOS Drive or host files. Returns a path or `None`. |
+| `save_file(parent, title, wildcard)` | Opens the shared PyOS save picker for the PyOS Drive or host files. Returns a path or `None`. |
 | `notify(title: str, message: str, level: str = 'info')` | Sends a notification to the user. Currently supports spoken notifications. `level` can be 'info', 'warning', or 'error'. |
 
 ## 4. Special Features

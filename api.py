@@ -4,6 +4,7 @@ import os
 import json
 import subprocess # For executing files
 import importlib # Import importlib for dynamic module loading
+from file_dialogs import choose_file # Import importlib for dynamic module loading
 
 from message_service import MessageService
 from app_paths import get_data_dir
@@ -90,6 +91,15 @@ class SystemAPI:
 
     def get_vfs(self):
         return self.kernel
+
+    def choose_file(self, parent, mode="open", title=None, wildcard="All files (*.*)|*.*"):
+        return choose_file(parent, self, mode, title, wildcard)
+
+    def open_file(self, parent, title="Open File", wildcard="All files (*.*)|*.*"):
+        return choose_file(parent, self, "open", title, wildcard)
+
+    def save_file(self, parent, title="Save File", wildcard="All files (*.*)|*.*"):
+        return choose_file(parent, self, "save", title, wildcard)
 
     def speak(self, text, interrupt=True):
         self.engine.speak(text, interrupt)

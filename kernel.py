@@ -6,19 +6,24 @@ import threading
 import platform
 import shutil
 from platform_support import get_shells
+from app_paths import get_data_dir
 
 class VirtualOS:
-    def __init__(self, root_dir="vfs"):
-        self.root_dir = os.path.abspath(root_dir)
+    def __init__(self, root_dir=None):
+        self.root_dir = os.path.abspath(root_dir or os.path.join(get_data_dir(), "vfs"))
         self.cwd = "/"
         self.shell_proc = None
         self.shell_type = None
         self.output_callback = None
         self.platform_name = platform.system()
         if not os.path.exists(self.root_dir):
-            os.makedirs(self.root_dir)
-            # Create some default files
-            self._create_default_files()
+            legacy_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "vfs"))
+            if root_dir is None and os.path.isdir(legacy_root):
+                os.makedirs(os.path.dirname(self.root_dir), exist_ok=True)
+                shutil.copytree(legacy_root, self.root_dir)
+            else:
+                os.makedirs(self.root_dir, exist_ok=True)
+                self._create_default_files()
 
     def _create_default_files(self):
         with open(os.path.join(self.root_dir, "welcome.txt"), "w") as f:

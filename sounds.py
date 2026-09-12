@@ -29,6 +29,76 @@ try:
 except ImportError:
     winsound = None
 
+# Characters that are invalid in Windows file/folder names. Theme names become
+# folder names under the themes directory, so they must be valid on every OS.
+INVALID_THEME_NAME_CHARS = set('\\/:*?"<>|')
+
+
+def is_valid_theme_name(name):
+    """Return (ok, error) for a proposed theme name."""
+    if not isinstance(name, str):
+        return False, "Theme name is required."
+    name = name.strip()
+    if not name:
+        return False, "Theme name is required."
+    if name in (".", ".."):
+        return False, "That theme name is not allowed."
+    bad = sorted({char for char in name if char in INVALID_THEME_NAME_CHARS})
+    if bad:
+        return False, "Theme name cannot contain " + ", ".join(bad) + "."
+    if any(ord(char) < 32 for char in name):
+        return False, "Theme name cannot contain control characters."
+    return True, ""
+
+
+def parse_tone_string(frequencies_text, durations_text):
+    """Parse tone entry text into a notes list.
+
+    frequencies_text: comma/space separated frequencies in Hz (0 = silence).
+    durations_text: comma/space separated durations in milliseconds.
+
+    Returns (notes, None) on success, where notes is [(freq, dur), ...],
+    or (None, error_message) when the input is invalid.
+    """
+    def split_values(text):
+        return [part.strip() for part in str(text).replace(",", " ").split() if part.strip()]
+
+    freq_parts = split_values(frequencies_text)
+    dur_parts = split_values(durations_text)
+    if not freq_parts and not dur_parts:
+        return None, "Enter at least one frequency and duration."
+    if len(freq_parts) != len(dur_parts):
+        return None, (
+            f"You entered {len(freq_parts)} frequencies and {len(dur_parts)} durations. "
+            "The counts must match."
+        )
+    notes = []
+    for index, (freq_text, dur_text) in enumerate(zip(freq_parts, dur_parts), start=1):
+        try:
+            freq = float(freq_text)
+        except ValueError:
+            return None, f"Frequency {index} is not a number: {freq_text}"
+        try:
+            dur = int(round(float(dur_text)))
+        except ValueError:
+            return None, f"Duration {index} is not a number: {dur_text}"
+        if freq < 0 or freq > 20000:
+            return None, f"Frequency {index} must be between 0 and 20000 hertz."
+        if dur <= 0 or dur > 10000:
+            return None, f"Duration {index} must be between 1 and 10000 milliseconds."
+        notes.append((freq, dur))
+    return notes, None
+
+
+def notes_to_tone_string(notes):
+    """Render a notes list as the two tone-entry strings (frequencies, durations)."""
+    if not notes:
+        return "", ""
+    frequencies = ", ".join(str(int(freq)) if float(freq).is_integer() else str(freq) for freq, _dur in notes)
+    durations = ", ".join(str(int(dur)) for _freq, dur in notes)
+    return frequencies, durations
+
+
 class SoundManager:
     def __init__(self, data_dir):
         # Normalize the path initially
@@ -36,6 +106,8 @@ class SoundManager:
         self.platform_name = platform.system()
         self.ffplay_path = shutil.which("ffplay")
         self.afplay_path = shutil.which("afplay") if self.platform_name == "Darwin" else None
+        self.aplay_path = shutil.which("aplay") if self.platform_name == "Linux" else None
+        self.paplay_path = shutil.which("paplay") if self.platform_name == "Linux" else None
         self.generated_tones_dir = os.path.join(self.data_dir, "generated_tones")
         self.repo_root = os.path.dirname(os.path.abspath(__file__))
         self.repo_music_dir = os.path.join(self.repo_root, "music")
@@ -182,10 +254,12 @@ class SoundManager:
         if name in self.themes:
             self.current_theme = name
             try:
-                with open(self.config_path, "w", encoding='utf-8') as f:
+                with open(self.config_path, "w", encoding="utf-8") as f:
                     json.dump({"theme": name}, f)
             except Exception as e:
                 print(f"Error saving theme name: {e}")
+            # Only themes that actually define background music change the user's
+            # music selection; music-less themes leave it untouched.
             theme_music = self.get_theme_background_music(name)
             if theme_music is not None:
                 self.save_background_music(theme_music)
@@ -206,9 +280,21 @@ class SoundManager:
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
         stored_value = music_value if music_value else "None"
+        # Read-modify-write so the saved volume survives music changes.
+        config = {}
+        if os.path.exists(self.music_config_path):
+            try:
+                with open(self.music_config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+            except Exception:
+                config = {}
+        if isinstance(config, dict):
+            config["music"] = stored_value
+        else:
+            config = {"music": stored_value}
         try:
-            with open(self.music_config_path, "w", encoding='utf-8') as f:
-                json.dump({"music": stored_value}, f)
+            with open(self.music_config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f)
         except Exception as e:
             print(f"Error saving background music: {e}")
 
@@ -221,11 +307,18 @@ class SoundManager:
         return None
 
     def get_theme_background_music(self, theme_name=None):
+        """Return the theme's background music setting.
+
+        Returns None when the theme does not define background music, so callers
+        can distinguish "theme has no music" from a literal "None" selection.
+        """
         selected_theme = theme_name or self.current_theme
-        theme_data = self.themes.get(selected_theme, {})
-        music_value = self._normalize_theme_asset(theme_data.get("background_music", "None"))
+        theme_data = self.themes.get(selected_theme)
+        if theme_data is None or "background_music" not in theme_data:
+            return None
+        music_value = self._normalize_theme_asset(theme_data.get("background_music"))
         if not music_value:
-            return "None"
+            return None
         return music_value
 
     def _resolve_sound_data(self, sound_type):
@@ -239,8 +332,12 @@ class SoundManager:
         data = theme_data.get(sound_type)
         if not data and sound_type in fallback_map:
             data = theme_data.get(fallback_map[sound_type])
-        if not data and sound_type in fallback_map:
-            data = self.themes["Modern"].get(sound_type) or self.themes["Modern"].get(fallback_map[sound_type])
+        # Unassigned slots fall back to the Modern theme so partial themes work.
+        if not data and sound_type != "background_music":
+            fallback = self.themes["Modern"].get(sound_type)
+            if not fallback and sound_type in fallback_map:
+                fallback = self.themes["Modern"].get(fallback_map[sound_type])
+            data = fallback
         return data
 
     def play(self, sound_type):
@@ -271,24 +368,73 @@ class SoundManager:
             self._play_notes_sync(data)
 
     def _play_notes(self, notes):
-        """Play a sequence of notes using ffplay and lavfi."""
-        if self._play_notes_with_winsound_audio(notes):
-            return
-        if self._play_notes_with_sounddevice(notes):
-            return
-        if self._play_notes_with_winsound(notes):
-            return
-        self._play_notes_ffplay(notes)
+        """Play a sequence of notes using the best available backend."""
+        self._run_notes_chain(notes)
 
     def _play_notes_sync(self, notes):
         """Play notes synchronously."""
+        self._run_notes_chain(notes)
+
+    def _run_notes_chain(self, notes):
         if self._play_notes_with_winsound_audio(notes):
             return
         if self._play_notes_with_sounddevice(notes):
             return
         if self._play_notes_with_winsound(notes):
             return
+        if self._play_notes_with_system_player(notes):
+            return
         self._play_notes_ffplay(notes)
+
+    def _play_notes_with_system_player(self, notes):
+        """Render tones to a WAV file and play it with a system player.
+
+        This is the macOS/Linux fallback for tone sequences when sounddevice is
+        unavailable: afplay on macOS, aplay/paplay on Linux. Returns False when
+        no system player can handle the rendered file so the caller can fall
+        back to ffplay.
+        """
+        if not notes:
+            return False
+        try:
+            wav_path = self._get_or_create_tone_file(notes)
+        except Exception as e:
+            print(f"Failed to render tones to file: {e}")
+            return False
+        if not wav_path:
+            return False
+        for player in (self.afplay_path, self.paplay_path, self.aplay_path):
+            if not player:
+                continue
+            try:
+                subprocess.run(
+                    [player, wav_path],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return True
+            except Exception:
+                continue
+        return False
+
+    def play_preview(self, value):
+        """Play a single theme slot assignment without changing the current theme.
+
+        `value` is either a notes list (tone sequence) or an audio file path.
+        Returns True when playback was started, False when the value was empty
+        or the file could not be found.
+        """
+        if not value:
+            return False
+        if isinstance(value, str):
+            path = self._normalize_theme_asset(value)
+            if not os.path.exists(path):
+                print(f"Preview file not found: {path}")
+                return False
+            threading.Thread(target=self._play_file, args=(path,), daemon=True).start()
+        else:
+            threading.Thread(target=self._play_notes, args=(value,), daemon=True).start()
+        return True
 
     def _build_notes_filter(self, notes):
         """Builds a lavfi filter string for a sequence of sine waves."""
@@ -329,6 +475,20 @@ class SoundManager:
         if self.afplay_path:
             subprocess.run(
                 [self.afplay_path, path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return
+        if self.paplay_path:
+            subprocess.run(
+                [self.paplay_path, path],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return
+        if self.aplay_path and path.lower().endswith(".wav"):
+            subprocess.run(
+                [self.aplay_path, path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )

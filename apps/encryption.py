@@ -105,11 +105,10 @@ class EncryptionApp(BlindApp):
 
     def on_browse(self, event):
         wildcard = "All files (*.*)|*.*"
-        dlg = wx.FileDialog(self.frame, "Select a file", wildcard=wildcard, style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
-        if dlg.ShowModal() == wx.ID_OK:
-            self.file_display.SetValue(dlg.GetPath())
-            self.api.speak(f"Selected {os.path.basename(dlg.GetPath())}")
-        dlg.Destroy()
+        path = self.api.choose_file(self.frame, "open", "Select a file", wildcard)
+        if path:
+            self.file_display.SetValue(path)
+            self.api.speak(f"Selected {os.path.basename(path)}")
 
     def on_run(self, event):
         file_path = self.file_display.GetValue().strip()

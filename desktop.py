@@ -12,6 +12,7 @@ import time
 from api import SystemAPI
 from app_paths import get_data_dir
 import platform_support
+from file_dialogs import choose_file
 
 class RecoveryConsole(wx.Dialog):
     def __init__(self, parent, missing_files):
@@ -101,9 +102,10 @@ class RecoveryConsole(wx.Dialog):
             engine.speak("Unknown command.")
 
 class RepairFrame(wx.Frame):
-    def __init__(self, missing_files):
+    def __init__(self, missing_files, api=None):
         super().__init__(None, title="PyOS System Recovery", size=(500, 450), style=wx.DEFAULT_FRAME_STYLE | wx.STAY_ON_TOP)
         self.missing_files = missing_files
+        self.api = api
         self.panel = wx.Panel(self)
         self.panel.SetBackgroundColour(wx.Colour(128, 0, 0)) # Recovery Maroon
         self.sizer = wx.BoxSizer(wx.VERTICAL)
@@ -145,18 +147,19 @@ class RepairFrame(wx.Frame):
     def on_repair(self, event):
         import shutil
         for file_name in self.missing_files[:]:
-            with wx.FileDialog(self, f"Locate {file_name}", wildcard=f"{file_name}|{file_name}",
-                               style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) as fileDialog:
-                if fileDialog.ShowModal() == wx.ID_CANCEL:
-                    continue
-                
-                path = fileDialog.GetPath()
-                try:
-                    shutil.copy(path, os.path.join(os.getcwd(), file_name))
-                    self.missing_files.remove(file_name)
-                    wx.MessageBox(f"Successfully restored {file_name}.", "Repair", wx.OK | wx.ICON_INFORMATION)
-                except Exception as e:
-                    wx.MessageBox(f"Failed to copy {file_name}: {e}", "Error", wx.OK | wx.ICON_ERROR)
+            if not self.api:
+                wx.MessageBox("File selection is unavailable during recovery.", "Repair")
+                continue
+            path = choose_file(self, self.api, "open", f"Locate {file_name}",
+                               f"{file_name}|{file_name}")
+            if not path:
+                continue
+            try:
+                shutil.copy(path, os.path.join(os.getcwd(), file_name))
+                self.missing_files.remove(file_name)
+                wx.MessageBox(f"Successfully restored {file_name}.", "Repair", wx.OK | wx.ICON_INFORMATION)
+            except Exception as e:
+                wx.MessageBox(f"Failed to copy {file_name}: {e}", "Error", wx.OK | wx.ICON_ERROR)
                     
         if not self.missing_files:
             wx.MessageBox("System repaired successfully. Please restart PyOS.", "Repair Complete", wx.OK | wx.ICON_INFORMATION)
@@ -374,7 +377,7 @@ class PyOSController:
         # 1. Integrity Check (The "Kernel" Self-Test)
         missing = self.check_integrity()
         if missing:
-            repair = RepairFrame(missing)
+            repair = RepairFrame(missing, self.api)
             repair.Show()
             return
 
@@ -418,9 +421,14 @@ class PyOSController:
         threading.Thread(target=self._background_music_thread, daemon=True).start()
 
     def _background_music_thread(self):
-        import sounddevice as sd
-        import soundfile as sf
-        import numpy as np
+        # Optional dependencies: without sounddevice/soundfile the thread simply
+        # stays idle instead of crashing on import.
+        try:
+            import sounddevice as sd
+            import soundfile as sf
+            import numpy as np
+        except ImportError:
+            return
         music_config_path = self.api.get_data_path("music_config.json")
         current_music = None
         current_volume = None
@@ -444,8 +452,10 @@ class PyOSController:
                     stream.close()
                     stream = None
             if current_music != "None" and stream is None:
-                music_path = os.path.join(os.getcwd(), "music", current_music)
-                if os.path.exists(music_path):
+                # Resolve through SoundManager so custom/absolute theme music
+                # paths work, not just files in the repo music folder.
+                music_path = self.sound_manager.resolve_music_path(current_music)
+                if music_path and os.path.exists(music_path):
                     try:
                         file = sf.SoundFile(music_path)
                         vol = current_volume / 100.0

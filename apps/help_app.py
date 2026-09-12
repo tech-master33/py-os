@@ -26,7 +26,9 @@ class HelpApp(BlindApp):
                 "Close window: Use your platform's standard close shortcut, such as Alt+F4 on Windows or Command+W on Mac.\n\n"
                 "File Explorer Shortcuts:\n"
                 "Backspace: Go up one folder level.\n"
-                "Alt + Left: Go back in history."
+                "Alt + Left: Go back in history.\n"
+                "File Explorer opens to This PC, where PyOS Drive contains simulator files "
+                "and Host Files contains normal computer files."
             ),
             "User Guide: Platform Support": (
                 "PyOS is designed to run on Windows, macOS, and Linux. "

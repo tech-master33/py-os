@@ -5,7 +5,7 @@ An accessible operating system simulator for blind and visually impaired users.
 ## Features
 - **Cross-platform Speech Engine**: Uses NVDA on Windows when available, macOS `say` on Mac, and Speech Dispatcher, eSpeak, or `pyttsx3` on Linux depending on what is installed.
 - **High Contrast GUI**: Built with `wxPython`, optimized for screen readers and low-vision users.
-- **Virtual File System**: A safe, sandboxed environment (`/vfs` folder) to practice file management.
+- **Virtual File System**: A safe PyOS drive stored in PyOS's data directory to practice file management.
 - **VoiceOver-friendly navigation on macOS**: Focus changes avoid excessive duplicate announcements so VoiceOver can read controls naturally.
 - **Platform Diagnostics app**: Reports available speech backends, host shells, file-open helpers, and optional dependencies on the current machine.
 - **Keyboard Shortcuts**:
@@ -29,7 +29,15 @@ An accessible operating system simulator for blind and visually impaired users.
 - On macOS, py-os uses the built-in `say` command for spoken feedback.
 - The desktop reduces automatic focus chatter on macOS so VoiceOver can announce buttons and controls more clearly.
 - File Explorer uses the native `open` command to launch files with their default Mac app.
-- By default, app data is stored in the repo-local `.py-os-data/` folder. Set `PY_OS_DATA_DIR` if you want it elsewhere.
+- By default, app data and the PyOS drive are stored in `~/.py-os/`. Set `PY_OS_DATA_DIR` if you want them elsewhere.
+
+## File Storage
+
+File Explorer opens to **This PC**, with separate locations for the **PyOS Drive** and
+**Host Files**. The PyOS Drive is the simulator's own filesystem and is shared with
+Terminal. Host Files provides access to normal files on the computer. Existing files
+from the legacy repository `vfs` folder are copied to the PyOS data directory on first
+launch.
 
 ## Support Matrix
 

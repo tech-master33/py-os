@@ -512,14 +512,16 @@ class FileExplorerApp(BlindApp):
         self.description = "Browse your files."
         self.category = "System"
         self.help_text = "Use Arrow keys to navigate, Enter to open, and Backspace to go up."
-        self.docs = "File Explorer allows you to browse the host file system."
-        self.current_dir = os.getcwd()
+        self.docs = "File Explorer provides access to the PyOS Drive and the host file system."
+        self.vfs_root = os.path.abspath(self.api.get_vfs().root_dir)
+        self.current_dir = None
+        self.current_source = None
         self.history = []
         self.items = []
         self.platform_name = platform.system()
 
     def run(self):
-        self.frame = wx.Frame(None, title=f"File Explorer - {self.current_dir}", size=(700, 500))
+        self.frame = wx.Frame(None, title="File Explorer - This PC", size=(700, 500))
         panel = wx.Panel(self.frame)
         panel.SetBackgroundColour(wx.Colour(0, 0, 0))
         
@@ -586,6 +588,14 @@ class FileExplorerApp(BlindApp):
         self.list.DeleteAllItems()
         self.items = []
         try:
+            if self.current_source is None:
+                self._add_item("PyOS Drive", True, self.vfs_root, "vfs")
+                self._add_item("Host Files", True, os.path.abspath(os.sep), "host")
+                self.address_bar.SetValue("This PC")
+                self.frame.SetTitle("File Explorer - This PC")
+                self.back_button.Enable(bool(self.history))
+                return
+
             raw_items = os.listdir(self.current_dir)
             # Sort: folders first, then files
             raw_items.sort(key=lambda x: (not os.path.isdir(os.path.join(self.current_dir, x)), x.lower()))
@@ -593,40 +603,65 @@ class FileExplorerApp(BlindApp):
             for i, name in enumerate(raw_items):
                 full_path = os.path.join(self.current_dir, name)
                 is_dir = os.path.isdir(full_path)
-                item_type = "Folder" if is_dir else "File"
-                
-                self.list.InsertItem(i, name)
-                self.list.SetItem(i, 1, item_type)
-                self.items.append((name, is_dir))
+                self._add_item(name, is_dir, full_path, self.current_source)
             
-            self.address_bar.SetValue(self.current_dir)
-            self.frame.SetTitle(f"File Explorer - {self.current_dir}")
+            location_name = "PyOS Drive" if self.current_source == "vfs" and self.current_dir == self.vfs_root else self.current_dir
+            self.address_bar.SetValue(location_name)
+            self.frame.SetTitle(f"File Explorer - {location_name}")
             self.back_button.Enable(len(self.history) > 0)
         except Exception as e:
             self.api.speak(f"Error: {e}")
 
-    def go_to_path(self, path):
+    def _add_item(self, name, is_dir, full_path, source):
+        index = self.list.GetItemCount()
+        self.list.InsertItem(index, name)
+        self.list.SetItem(index, 1, "Folder" if is_dir else "File")
+        self.items.append((name, is_dir, full_path, source))
+
+    def go_to_path(self, path, source=None):
         if os.path.isdir(path):
-            self.history.append(self.current_dir)
+            self.history.append((self.current_source, self.current_dir))
             self.current_dir = os.path.abspath(path)
+            self.current_source = source or ("vfs" if self.current_dir == self.vfs_root or self.current_dir.startswith(self.vfs_root + os.sep) else "host")
             self.refresh_files()
             if self.items:
                 self.list.SetItemState(0, wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED, wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED)
-            self.api.speak(f"Entered {os.path.basename(self.current_dir) or self.current_dir}")
+            self.api.speak(f"Entered {'PyOS Drive' if self.current_source == 'vfs' and self.current_dir == self.vfs_root else os.path.basename(self.current_dir) or self.current_dir}")
+
+    def go_to_drives(self):
+        self.history.append((self.current_source, self.current_dir))
+        self.current_source = None
+        self.current_dir = None
+        self.refresh_files()
+        self.api.speak("This PC")
 
     def go_back(self, event):
         if self.history:
-            self.current_dir = self.history.pop()
+            self.current_source, self.current_dir = self.history.pop()
             self.refresh_files()
-            self.api.speak(f"Back to {os.path.basename(self.current_dir) or self.current_dir}")
+            if self.current_source is None:
+                self.api.speak("Back to This PC")
+            else:
+                self.api.speak(f"Back to {os.path.basename(self.current_dir) or self.current_dir}")
 
     def go_up(self, event):
+        if self.current_source is None:
+            return
+        if self.current_source == "vfs" and self.current_dir == self.vfs_root:
+            self.go_to_drives()
+            return
         parent = os.path.dirname(self.current_dir)
         if parent != self.current_dir:
             self.go_to_path(parent)
 
     def go_to_address(self, event):
         path = self.address_bar.GetValue()
+        if path.lower() in {"this pc", "computer"}:
+            self.go_to_drives()
+            return
+        if path.lower() in {"pyos drive", "py-os drive"}:
+            self.go_to_path(self.vfs_root, "vfs")
+            return
         if os.path.isdir(path):
             self.go_to_path(path)
         else:
@@ -635,17 +670,17 @@ class FileExplorerApp(BlindApp):
     def on_item_focused(self, event):
         index = event.GetIndex()
         if not self.api.is_enhanced_mode() and 0 <= index < len(self.items):
-            name, is_dir = self.items[index]
+            name, is_dir, _, source = self.items[index]
             item_type = "Folder" if is_dir else "File"
-            self.api.speak(f"{name}, {item_type}", interrupt=False)
+            location = " in PyOS Drive" if source == "vfs" else ""
+            self.api.speak(f"{name}, {item_type}{location}", interrupt=False)
 
     def on_item_activated(self, event):
         index = event.GetIndex()
-        name, is_dir = self.items[index]
-        full_path = os.path.join(self.current_dir, name)
+        name, is_dir, full_path, source = self.items[index]
         
         if is_dir:
-            self.go_to_path(full_path)
+            self.go_to_path(full_path, source)
         else:
             self.api.speak(f"Opening {name}", interrupt=False)
             lower = name.lower()
@@ -838,10 +873,10 @@ class TextEditorApp(BlindApp):
             self.api.speak(f"Error loading file: {e}")
 
     def on_open(self, event):
-        dialog = wx.FileDialog(self.frame, "Open Text File", wildcard="Text files (*.txt)|*.txt|All files (*.*)|*.*", style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
-        if dialog.ShowModal() == wx.ID_OK:
-            self.load_file(dialog.GetPath())
-        dialog.Destroy()
+        path = self.api.open_file(self.frame, "Open Text File",
+                                  "Text files (*.txt)|*.txt|All files (*.*)|*.*")
+        if path:
+            self.load_file(path)
 
     def on_save(self, event):
         if self.current_file_path:
@@ -855,9 +890,10 @@ class TextEditorApp(BlindApp):
             self.on_save_as(event)
 
     def on_save_as(self, event):
-        dialog = wx.FileDialog(self.frame, "Save Text File As", wildcard="Text files (*.txt)|*.txt|All files (*.*)|*.*", style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT)
-        if dialog.ShowModal() == wx.ID_OK:
-            self.current_file_path = dialog.GetPath()
+        path = self.api.save_file(self.frame, "Save Text File As",
+                                  "Text files (*.txt)|*.txt|All files (*.*)|*.*")
+        if path:
+            self.current_file_path = path
             try:
                 with open(self.current_file_path, 'w', encoding='utf-8') as f:
                     f.write(self.text_ctrl.GetValue())
@@ -865,7 +901,6 @@ class TextEditorApp(BlindApp):
                 self.api.speak(f"File saved as: {os.path.basename(self.current_file_path)}")
             except Exception as e:
                 self.api.speak(f"Error saving file: {e}")
-        dialog.Destroy()
 
     def on_new(self, event):
         self.text_ctrl.SetValue("")
