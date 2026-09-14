@@ -50,8 +50,43 @@ class MyApp(BlindApp):
 ## 5. File System Access
 For applications needing to interact with the host file system (e.g., reading/writing files, browsing directories), use Python's built-in `os` module directly. Avoid using `self.api.get_vfs()` for host file system operations.
 
-## 6. Text Editor App
+## 6. AI Providers
+
+The **AI Assistant** app (`.assistant.py`) talks to providers through `ai_providers.py`, which is importable without wxPython so it can be unit tested headless. To add a fourth provider:
+
+1. Subclass `AIProvider` in `ai_providers.py` and set `key`, `label`, `description`, `requires_api_key`, and `default_model`.
+2. Implement `list_models()` to return model names and `ask(prompt, model)` to return one reply as text. Implement `verify_key(api_key)` when the provider needs a key, and raise `ProviderError` with a kind of `no_key`, `bad_key`, `offline`, or `http` for anything the user should hear about.
+3. Add the class to `PROVIDER_CLASSES` and to `PROVIDER_ORDER` so it appears in the picker.
+
+The picker dialog and the API-key dialog live in `ai_provider_dialog.py`. Chosen provider, per-provider models, and API keys are stored in `ai_config.json` via the helpers in `ai_providers.py` (keys are plain text on purpose, so users can inspect or delete them).
+
+## 7. Text Editor App
 A basic `TextEditorApp` is available for creating and editing text files. It can be launched via the application menu.
 
-## 7. Notifications
+## 8. Notifications
 Applications can now send notifications using `self.api.notify(title, message, level='info')`. This currently triggers a spoken notification. The `level` parameter can be used to indicate the severity ('info', 'warning', 'error'). Future enhancements may include visual notifications.
+
+## 9. Teaching the AI about PyOS
+
+The **AI Assistant** sends a reference document with every question, so a model can answer
+accurately about the desktop, the apps and the Terminal instead of inventing features.
+It is assembled by `pyos_knowledge.py`, which is importable without wxPython.
+
+- Curated prose lives in that module as section constants. Each section registers a key, a
+  title, a priority and whether it is essential.
+- Live facts are read from the running system: the data folder from `app_paths`, the
+  installed app list from the desktop, and the host shells from `platform_support.get_shells()`.
+- `build_knowledge(apps=..., shells=..., include=..., max_chars=...)` returns a `KnowledgePack`
+  with `.text`, `.sections`, `.dropped`, `.fingerprint`, `.char_count` and `.summary()`.
+
+Providers receive the reference through `AIProvider.ask(prompt, model, system=...)`, and each
+one places it in its own field: Ollama's `system`, Gemini's `systemInstruction`, and a system
+message for OpenRouter. `AIProvider.system_char_limit` is the per-provider budget, so if the
+reference grows past it the lowest-priority non-essential sections are dropped rather than
+overrunning a small local model, and the Knowledge dialog reports what was left out.
+
+If you add, rename or remove an app or a Terminal command, update the matching section in
+`pyos_knowledge.py`. The installed-app list looks after itself, but the curated prose does not,
+and a model told about an app that no longer exists will happily describe it.
+`tests/test_pyos_knowledge.py` checks the Terminal commands against the kernel's own help
+output, so a new command fails the suite until the reference mentions it.

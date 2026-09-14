@@ -7,6 +7,7 @@ An accessible operating system simulator for blind and visually impaired users.
 - **High Contrast GUI**: Built with `wxPython`, optimized for screen readers and low-vision users.
 - **Virtual File System**: A safe PyOS drive stored in PyOS's data directory to practice file management.
 - **VoiceOver-friendly navigation on macOS**: Focus changes avoid excessive duplicate announcements so VoiceOver can read controls naturally.
+- **AI Assistant with three providers**: Ollama on this computer, Google Gemini, or OpenRouter. The assistant asks which provider to use each time it starts, remembers your choice, and saves any API key locally so you only type it once. Every answer carries a short reference about PyOS itself, so the model knows how the desktop, the apps and the Terminal really work.
 - **Platform Diagnostics app**: Reports available speech backends, host shells, file-open helpers, and optional dependencies on the current machine.
 - **Keyboard Shortcuts**:
   - `Ctrl + T`: Speak current time.
@@ -23,6 +24,56 @@ An accessible operating system simulator for blind and visually impaired users.
 - `where`: Speak current directory.
 - `exit`: Close the simulator.
 - `shell <type>`: Open a host shell such as `zsh`, `bash`, `sh`, `cmd`, or `powershell`, depending on your platform.
+
+## AI Assistant
+
+The **AI Assistant** app can talk to three providers:
+
+- **Ollama** — local models served by Ollama on this computer. No API key needed.
+- **Google Gemini** — Google's Gemini models over the internet. Needs a Gemini API key.
+- **OpenRouter** — many models from many companies through one service. Needs an OpenRouter API key.
+
+Every time the assistant starts it asks which provider you want to use. Pick one and
+press Continue:
+
+- Ollama starts right away.
+- Gemini and OpenRouter ask for an API key the first time you choose them. The key is
+  checked against the provider, then saved, so next time you can pick the provider and
+  start asking questions straight away.
+
+Each provider keeps its own model and its own API key. The **Provider...** button in the
+assistant switches provider or replaces a key mid-session without restarting, and
+**Clear Saved Key** in the picker forgets a stored key. Models are listed from the
+provider itself, so Gemini and OpenRouter always show what your key can actually use.
+
+The settings live in `ai_config.json` in the PyOS data folder (`~/.py-os/` by default,
+or `PY_OS_DATA_DIR` if you changed it). The last provider and model you used are stored
+there too.
+
+### What the AI knows about PyOS
+
+Every question is sent together with a short reference about PyOS itself, so the
+model knows how this simulator actually works: the desktop and its keyboard
+shortcuts, the apps installed on this copy, the Terminal commands, and how to
+write an app. Without it a model would guess at menus and commands that do not
+exist.
+
+Press **Knowledge...** in the assistant to hear that reference section by section.
+**Speak All** reads the whole thing, and **Copy All** puts it on the clipboard so you
+can paste it into another AI tool. The reference is rebuilt every time the assistant
+starts, which means the apps and host shells described in it always match this
+computer. Its size is trimmed automatically for a provider with a smaller model, and
+the dialog says so when that happens.
+
+### About your API keys
+
+API keys are stored in **plain text** in that file, so anyone who can read it can use
+your key. That keeps the file easy to back up, inspect, or delete with any text editor.
+On Windows and macOS the data folder is inside your user profile, which is only readable
+by you. Get a key from:
+
+- Gemini: <https://aistudio.google.com/app/apikey>
+- OpenRouter: <https://openrouter.ai/keys>
 
 ## macOS Notes
 
