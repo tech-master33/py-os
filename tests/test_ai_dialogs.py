@@ -11,6 +11,7 @@ try:
 except ImportError:  # pragma: no cover - wxPython is a hard requirement of PyOS
     wx = None
 
+import netguard
 import ai_provider_dialog
 from pyos_knowledge import build_knowledge
 from ai_providers import (
@@ -21,6 +22,16 @@ from ai_providers import (
     get_provider_name,
     set_api_key,
 )
+
+
+def setUpModule():
+    # The key dialog checks a key against the provider on a worker thread, so the
+    # guard matters here too.
+    netguard.block()
+
+
+def tearDownModule():
+    netguard.restore()
 
 
 class FakeAPI:
@@ -127,6 +138,36 @@ class ProviderPickerTests(DialogTestCase):
         set_api_key("gemini", "stored-key")
         dialog = self._picker()
         self.assertIn("API key saved", dialog.radio.GetString(1))
+
+    def test_groq_is_offered_last_and_asks_for_a_key(self):
+        dialog = self._picker()
+        last = dialog.radio.GetString(dialog.radio.GetCount() - 1)
+        self.assertIn("Groq", last)
+        self.assertIn("API key required", last)
+
+    def test_the_note_explains_the_key_rules_for_every_provider(self):
+        dialog = self._picker()
+        note = ai_provider_dialog._provider_note(ai_provider_dialog._provider_rows())
+
+        shown = [
+            child.GetLabel()
+            for child in dialog.panel.GetChildren()
+            if isinstance(child, wx.StaticText)
+        ]
+
+        self.assertIn(note, shown)
+        for label in ("Ollama", "Google Gemini", "OpenRouter", "Groq"):
+            self.assertIn(label, note)
+
+    def test_the_greeting_names_every_provider(self):
+        dialog = self._picker()
+        self.api.spoken.clear()
+
+        dialog._greet()
+
+        greeting = " ".join(self.api.spoken)
+        for label in ("Ollama", "Google Gemini", "OpenRouter", "Groq"):
+            self.assertIn(label, greeting)
 
     def test_remembered_provider_is_preselected(self):
         dialog = self._picker(current_provider="openrouter")

@@ -26,6 +26,33 @@ def _provider_rows():
     return list_providers()
 
 
+def _join_names(names):
+    """``["a", "b", "c"]`` becomes ``"a, b and c"``."""
+    names = [str(name) for name in names if name]
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    return ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _provider_note(providers):
+    """Explain the key rules without naming providers one by one.
+
+    The wording is built from the provider list rather than written out, so
+    adding a provider never leaves this note telling lies.
+    """
+    free = [provider.label for provider in providers if not provider.requires_api_key]
+    keyed = [provider.label for provider in providers if provider.requires_api_key]
+    lines = []
+    if free:
+        lines.append(f"No API key needed: {_join_names(free)}.")
+    if keyed:
+        lines.append(f"API key needed once, then saved for you: {_join_names(keyed)}.")
+        lines.append("Next time you can just pick your provider and start asking.")
+    return "\n".join(lines)
+
+
 class ProviderPickerDialog(wx.Dialog):
     """Ask which AI provider to use. Ollama continues immediately; the cloud
     providers chain into :class:`ApiKeyDialog` when no key is stored yet.
@@ -38,7 +65,7 @@ class ProviderPickerDialog(wx.Dialog):
         super().__init__(
             parent,
             title="Choose an AI Provider",
-            size=(600, 470),
+            size=(620, 560),
             style=wx.DEFAULT_DIALOG_STYLE | wx.STAY_ON_TOP,
         )
         self.api = api
@@ -70,11 +97,7 @@ class ProviderPickerDialog(wx.Dialog):
 
         note = wx.StaticText(
             self.panel,
-            label=(
-                "Ollama runs on this computer and needs no API key.\n"
-                "Gemini and OpenRouter ask for an API key once and save it,\n"
-                "so next time you can just pick the provider and start."
-            ),
+            label=_provider_note(self.providers),
         )
         note.SetForegroundColour(wx.Colour(220, 220, 255))
         self.sizer.Add(note, 0, wx.ALL | wx.CENTER, 8)
@@ -127,7 +150,8 @@ class ProviderPickerDialog(wx.Dialog):
     def _greet(self):
         self.api.speak(
             "Which AI provider do you want to use? "
-            "Use the arrow keys to choose between Ollama, Google Gemini and OpenRouter, "
+            "Use the arrow keys to choose between "
+            f"{_join_names([provider.label for provider in self.providers])}, "
             "then press Continue."
         )
         provider = self.providers[self.radio.GetSelection()]

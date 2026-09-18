@@ -16,9 +16,15 @@ from collections import namedtuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import ai_capability
 import kernel
 import pyos_knowledge
-from ai_providers import GeminiProvider, OllamaProvider, OpenRouterProvider
+from ai_providers import (
+    GeminiProvider,
+    GroqProvider,
+    OllamaProvider,
+    OpenRouterProvider,
+)
 from pyos_knowledge import (
     build_knowledge,
     knowledge_fingerprint,
@@ -112,6 +118,44 @@ class PackContentTests(TempDataDirTestCase):
         self.assertIn("apps/DEVELOPER_GUIDE.md", pack.text)
         self.assertIn("super().on_close(event)", pack.text)
 
+    def test_the_assistant_section_names_every_provider(self):
+        pack = build_knowledge(apps=APPS, shells=["bash"])
+        section = pack.section("ai_assistant")
+
+        for provider in ("Ollama", "Google Gemini", "OpenRouter", "Groq"):
+            self.assertIn(provider, section.text)
+
+    def test_the_assistant_section_explains_the_status_words(self):
+        pack = build_knowledge(apps=APPS, shells=["bash"])
+        section = pack.section("ai_assistant").text
+
+        for phrase in ("Thinking", "Generating response", "Researching", "Visiting website"):
+            self.assertIn(phrase, section)
+        self.assertIn("cannot search the web", section)
+
+    def test_the_assistant_section_says_the_model_reading_it_is_the_provider(self):
+        # This is the half of the grounding that stops a model answering a
+        # request to research with advice about checking providers.
+        pack = build_knowledge(apps=APPS, shells=["bash"])
+        section = pack.section("ai_assistant").text
+
+        self.assertIn("the model reading it is the provider", section)
+
+    def test_the_assistant_section_explains_the_memory(self):
+        pack = build_knowledge(apps=APPS, shells=["bash"])
+        section = pack.section("ai_assistant").text
+
+        self.assertIn("remembers the conversation while it is open", section)
+        self.assertIn("Clear conversation", section)
+        self.assertIn("written to disk", section)
+
+    def test_the_assistant_section_promises_only_what_the_box_really_does(self):
+        pack = build_knowledge(apps=APPS, shells=["bash"])
+        section = pack.section("ai_assistant").text
+
+        self.assertIn("announce their own state", section)
+        self.assertIn("only the spoken form leaves out characters", section)
+
     def test_the_reference_survives_json_encoding(self):
         pack = build_knowledge(apps=APPS, shells=["bash"])
 
@@ -172,12 +216,48 @@ class BudgetTests(TempDataDirTestCase):
         self.assertFalse(pack.truncated)
         self.assertLessEqual(pack.char_count, OllamaProvider.system_char_limit)
 
+    def test_the_reference_and_the_capability_block_both_fit(self):
+        """Every provider gets the reference *and* the block about itself.
+
+        They share one system budget, so the pack is built with the room the
+        block could need held back. If that arithmetic drifts, a provider either
+        loses the section that explains the assistant or the block that explains
+        the model, and both of those are the grounding this exists for.
+        """
+        for provider in (
+            OllamaProvider(),
+            GeminiProvider("k"),
+            OpenRouterProvider("k"),
+            GroqProvider("k"),
+        ):
+            model = provider.default_model
+            # The longest the block can be: research on, with memory in play.
+            reserve = max(
+                ai_capability.RESERVE_CHARS,
+                len(ai_capability.capability_block(provider, model, True, 8)) + 16,
+            )
+            pack = build_knowledge(
+                apps=APPS,
+                shells=["bash"],
+                max_chars=provider.system_char_limit - reserve,
+            )
+            block = ai_capability.capability_block(provider, model, True, 8)
+
+            self.assertEqual(pack.dropped, [], provider.key)
+            self.assertIn("ai_assistant", [s.key for s in pack.sections], provider.key)
+            self.assertLessEqual(
+                pack.char_count + len(block), provider.system_char_limit, provider.key
+            )
+
     def test_cloud_providers_get_more_room_than_ollama(self):
         self.assertLess(
             OllamaProvider.system_char_limit, GeminiProvider.system_char_limit
         )
         self.assertEqual(
             GeminiProvider.system_char_limit, OpenRouterProvider.system_char_limit
+        )
+        self.assertEqual(
+            GeminiProvider.system_char_limit, GroqProvider.system_char_limit
         )
 
     def test_a_tight_budget_drops_the_least_important_sections_first(self):

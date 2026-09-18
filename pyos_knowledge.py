@@ -1,6 +1,6 @@
 """What the AI Assistant knows about PyOS.
 
-Ollama, Gemini and OpenRouter cannot be taught PyOS by training: the two hosted
+Ollama, Gemini, OpenRouter and Groq cannot be taught PyOS by training: the hosted
 providers are closed-weight, and a local fine-tune would need a dataset, a GPU
 and a fresh run on every commit. So the assistant is *grounded* instead. This
 module builds one curated reference document that is attached to every question
@@ -22,10 +22,11 @@ from app_paths import get_data_dir
 
 KNOWLEDGE_TITLE = "PYOS REFERENCE"
 
-# The finished pack is roughly 9,000 characters, which is about 2,300 tokens.
-# Each provider carries its own budget in ``AIProvider.system_char_limit``; pass
-# it to :func:`build_knowledge` as ``max_chars`` and the least important
-# sections are dropped rather than overflowing a small context window.
+# The finished pack is roughly 9,400 characters on a small install, which is
+# about 2,400 tokens. Each provider carries its own budget in
+# ``AIProvider.system_char_limit``; pass it to :func:`build_knowledge` as
+# ``max_chars`` and the least important sections are dropped rather than
+# overflowing a small context window.
 
 DEFAULT_INCLUDE = (
     "overview",
@@ -135,12 +136,25 @@ Conventions worth following: bind wx.EVT_CLOSE to the app's on_close and call su
 
 The full reference is in apps/DEVELOPER_GUIDE.md, which the Help Center reads aloud."""
 
-_AI_ASSISTANT = """The AI Assistant app asks which provider to use every time it starts, then remembers the choice.
+_AI_ASSISTANT = """The AI Assistant asks which provider to use every time it starts, then remembers the choice.
 - Ollama: models running on this computer at localhost:11434. No API key is needed.
 - Google Gemini: Google's Gemini models over the internet. Needs a Gemini API key.
 - OpenRouter: many models from many companies through one service. Needs an OpenRouter API key.
+- Groq: fast open models, including Compound systems that search the web. Needs a Groq API key.
 
-Each provider keeps its own model and its own API key. The chosen provider, the models and the keys live in ai_config.json in the PyOS data folder, and the keys are stored as plain text on purpose, so they can be inspected, backed up or deleted in any text editor. The Provider button in the assistant switches provider or replaces a key without restarting, and Clear Saved Key in the picker forgets a stored key. Models are listed from the provider itself, so Gemini and OpenRouter only ever offer models the user's key can actually use."""
+The reference below is sent to whichever provider is answering, so the model reading it is the provider the user is talking to.
+
+Each provider keeps its own model, its own API key and its own web research setting in ai_config.json in the PyOS data folder. Keys are stored as plain text on purpose, so they can be read, backed up or deleted in any text editor. The Provider button switches provider or replaces a key without restarting, Clear Saved Key in the picker forgets a stored key, and models are listed from the provider itself, so only models the user's key can actually use are offered.
+
+The assistant remembers the conversation while it is open, separately for each provider, so a follow-up such as "and the second one?" makes sense. Closing the assistant, switching provider or pressing Clear conversation forgets it, and none of it is written to disk. A local model keeps only a little of it, because the reference, the conversation and the answer share one context window.
+
+While a question is being answered the assistant reports what the model is really doing and never guesses: Waiting for the provider, then Thinking when a reasoning model thinks, Generating response when answer text starts arriving, and Researching or Visiting website when the provider reports a search or a page it read. Ollama runs on this computer and cannot search the web, so it never reports research. Reasoning is written to the history as Thinking lines as it arrives, and handed to a screen reader one complete sentence at a time; on a computer with no screen reader it stays as text, because reading it out fragment by fragment would be worse than not hearing it. The Narrate reasoning box silences it either way. Nothing PyOS says cuts into what is being read: status words, thinking and the answer are handed over in order and the reader paces itself, keeping going after the model stops. Escape is the one deliberate interruption.
+
+The Web research box lets the model search the web as well as answer from its own knowledge: Gemini searches Google and can read pages, OpenRouter adds its web plugin, and Groq needs a Compound model such as groq/compound or a GPT OSS model. Searching costs extra on the hosted providers, and only a model with web tools can switch it on. Pages the model actually used are listed in the history under Sources, and Escape stops an answer while keeping the part that arrived.
+
+Both boxes announce their own state when focus reaches them, beginning with whether they are on or off, and turning one on or off says the new state straight away.
+
+Answers are shown exactly as the model wrote them; only the spoken form leaves out characters a voice cannot say."""
 
 
 class KnowledgeSection:

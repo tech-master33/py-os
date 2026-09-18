@@ -10,6 +10,7 @@ import time
 
 from app_paths import get_data_dir
 from platform_support import command_path, get_speech_backends, get_platform_name
+from text_integrity import for_speech
 
 try:
     import pyttsx3
@@ -224,7 +225,24 @@ class SpeechEngine:
     def get_rate(self):
         return self.rate
 
+    def uses_screen_reader(self):
+        """Whether the voice in use belongs to a screen reader.
+
+        True when NVDA is doing the talking on Windows, and on macOS, where the
+        system voice is the one VoiceOver users hear. This is a fact about the
+        current voice rather than a setting: an app that would have to read text
+        out fragment by fragment can hand whole sentences to the reader instead and
+        let its own queue do the pacing.
+        """
+        return bool(self.use_nvda or self.prefers_native_screen_reader)
+
     def speak(self, text, interrupt=True):
+        # The last gate before a voice sees anything. Every caller is meant to
+        # hand over speakable text already, but a character no voice can say is
+        # worse than useless: an unpaired surrogate or an emoji that has been
+        # through an ANSI boundary turns into a question mark and is read out
+        # that way. Cleaning here means no caller can leak one into the engine.
+        text = for_speech(text)
         if not text:
             return
 
