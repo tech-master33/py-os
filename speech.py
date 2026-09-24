@@ -8,7 +8,7 @@ import subprocess
 import threading
 import time
 
-from app_paths import get_data_dir
+from app_paths import get_data_dir, get_repo_root
 from platform_support import command_path, get_speech_backends, get_platform_name
 from text_integrity import for_speech
 
@@ -68,7 +68,10 @@ class SpeechEngine:
             return
 
         dll_name = "nvdaControllerClient64.dll" if ctypes.sizeof(ctypes.c_void_p) == 8 else "nvdaControllerClient32.dll"
-        dll_path = os.path.join(os.getcwd(), dll_name)
+        # The DLL ships next to desktop.py, so it is found from the repository
+        # root rather than the current working directory: a shortcut or an
+        # updater that starts PyOS elsewhere must not lose NVDA speech.
+        dll_path = os.path.join(get_repo_root(), dll_name)
         if not os.path.exists(dll_path):
             return
 

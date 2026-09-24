@@ -10,32 +10,10 @@ import traceback
 import sys
 import time
 from api import SystemAPI
-from app_paths import get_data_dir
+from app_paths import get_data_dir, get_repo_root
 import platform_support
+from arg_split import split_quoted_args
 from file_dialogs import choose_file
-
-
-def split_quoted_args(text):
-    r"""Split a command line on whitespace, respecting double quotes.
-
-    Lets Recovery Console commands like COPY accept paths containing spaces:
-    COPY "C:\my folder\a.txt" out.txt
-    """
-    args = []
-    current = []
-    in_quotes = False
-    for char in text:
-        if char == '"':
-            in_quotes = not in_quotes
-        elif char == " " and not in_quotes:
-            if current:
-                args.append("".join(current))
-                current = []
-        else:
-            current.append(char)
-    if current:
-        args.append("".join(current))
-    return args
 
 class RecoveryConsole(wx.Dialog):
     def __init__(self, parent, missing_files):
@@ -99,7 +77,7 @@ class RecoveryConsole(wx.Dialog):
             self.write_line(msg)
             engine.speak(msg)
         elif cmd == "dir":
-            files = os.listdir(os.getcwd())
+            files = os.listdir(get_repo_root())
             self.write_line("\n".join(files))
             engine.speak(f"Listed {len(files)} files.")
         elif cmd == "exit":
@@ -204,7 +182,7 @@ class RepairFrame(wx.Frame):
             if not path:
                 continue
             try:
-                shutil.copy(path, os.path.join(os.getcwd(), file_name))
+                shutil.copy(path, os.path.join(get_repo_root(), file_name))
                 self.missing_files.remove(file_name)
                 wx.MessageBox(f"Successfully restored {file_name}.", "Repair", wx.OK | wx.ICON_INFORMATION)
             except Exception as e:
@@ -244,7 +222,7 @@ class LoginFrame(wx.Frame):
         self.on_success = on_success
         
         config_path = self.api.get_data_path("config.json")
-        with open(config_path, "r") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             self.config = json.load(f)
             
         self.panel = wx.Panel(self)
@@ -360,7 +338,7 @@ class DesktopFrame(wx.Frame):
             self.app_buttons[0].SetFocus()
 
     def load_plugins(self):
-        apps_dir = os.path.join(os.getcwd(), "apps")
+        apps_dir = os.path.join(get_repo_root(), "apps")
         if not os.path.exists(apps_dir):
             os.makedirs(apps_dir)
         
@@ -435,7 +413,7 @@ class PyOSController:
         ]
         missing = []
         for f in critical_files:
-            if not os.path.exists(os.path.join(os.getcwd(), f)):
+            if not os.path.exists(os.path.join(get_repo_root(), f)):
                 missing.append(f)
         return missing
 
@@ -463,7 +441,7 @@ class PyOSController:
         if not os.path.exists(config_path):
             self.launch_oobe()
         else:
-            with open(config_path, "r") as f:
+            with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
                 if not config.get("completed_oobe"):
                     self.launch_oobe()
@@ -504,7 +482,7 @@ class PyOSController:
             new_volume = 50
             if os.path.exists(music_config_path):
                 try:
-                    with open(music_config_path, "r") as f:
+                    with open(music_config_path, "r", encoding="utf-8") as f:
                         cfg = json.load(f)
                         new_music = cfg.get("music", "None")
                         new_volume = cfg.get("volume", 50)
@@ -572,7 +550,7 @@ def check_system_integrity():
     ]
     missing = []
     for f in critical_files:
-        if not os.path.exists(os.path.join(os.getcwd(), f)):
+        if not os.path.exists(os.path.join(get_repo_root(), f)):
             missing.append(f)
     return missing
 

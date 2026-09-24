@@ -10,6 +10,7 @@ import time
 import speech
 from api import BlindApp
 import audio_devices
+from app_paths import get_repo_root
 from platform_support import open_external_file
 
 try:
@@ -332,7 +333,7 @@ class SettingsApp(BlindApp):
 
     def _load_music_volume(self):
         try:
-            with open(self.music_config_path, "r") as f:
+            with open(self.music_config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
             return config.get("volume", 50)
         except Exception:
@@ -342,11 +343,11 @@ class SettingsApp(BlindApp):
         try:
             config = {}
             if os.path.exists(self.music_config_path):
-                with open(self.music_config_path, "r") as f:
+                with open(self.music_config_path, "r", encoding="utf-8") as f:
                     config = json.load(f)
             config["volume"] = self.music_volume.GetValue()
-            with open(self.music_config_path, "w") as f:
-                json.dump(config, f)
+            with open(self.music_config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, ensure_ascii=False)
         except Exception:
             pass
 
@@ -434,21 +435,21 @@ class SettingsApp(BlindApp):
             update_state = {"phase": 1}
             state_path = self.api.get_data_path("update_state.json")
             try:
-                with open(state_path, "w") as f:
-                    json.dump(update_state, f)
+                with open(state_path, "w", encoding="utf-8") as f:
+                    json.dump(update_state, f, ensure_ascii=False)
             except Exception:
                 pass
             # Save music config before restart so background music isn't reset
             sel_music = self._get_selected_music_value()
             music_cfg = {"music": sel_music, "volume": self.music_volume.GetValue()}
             try:
-                with open(self.music_config_path, "w") as f:
-                    json.dump(music_cfg, f)
+                with open(self.music_config_path, "w", encoding="utf-8") as f:
+                    json.dump(music_cfg, f, ensure_ascii=False)
             except Exception:
                 pass
             log("Update complete. Restarting...")
             time.sleep(1)
-            subprocess.Popen([sys.executable, os.path.join(os.getcwd(), "desktop.py")], cwd=os.getcwd())
+            subprocess.Popen([sys.executable, os.path.join(get_repo_root(), "desktop.py")], cwd=str(get_repo_root()))
             hide_gauge()
             wx.CallAfter(self.frame.Close)
             wx.CallAfter(wx.GetApp().ExitMainLoop)

@@ -52,7 +52,7 @@ class BlindApp:
         """Check if enhanced mode is enabled."""
         config_path = self.api.get_data_path("config.json")
         try:
-            with open(config_path, "r") as f:
+            with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
             return config.get("enhanced_mode", False)
         except Exception:
@@ -62,14 +62,14 @@ class BlindApp:
         """Set enhanced mode on/off."""
         config_path = self.api.get_data_path("config.json")
         try:
-            with open(config_path, "r") as f:
+            with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
         except Exception:
             config = {}
         config["enhanced_mode"] = bool(enabled)
         try:
-            with open(config_path, "w") as f:
-                json.dump(config, f, indent=2)
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
             return True
         except Exception:
             return False

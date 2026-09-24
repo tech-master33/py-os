@@ -107,16 +107,18 @@ class RemindersApp(BlindApp):
     def load_reminders(self):
         if os.path.exists(self.db_path):
             try:
-                with open(self.db_path, "r") as f:
+                with open(self.db_path, "r", encoding="utf-8") as f:
                     self.reminders = json.load(f)
-            except: self.reminders = []
+            except Exception:
+                self.reminders = []
         else: self.reminders = []
 
     def save_reminders(self):
         try:
-            with open(self.db_path, "w") as f:
-                json.dump(self.reminders, f)
-        except: pass
+            with open(self.db_path, "w", encoding="utf-8") as f:
+                json.dump(self.reminders, f, ensure_ascii=False)
+        except Exception:
+            pass
 
     def run(self):
         self.frame = wx.Frame(None, title="Reminders", size=(400, 400))

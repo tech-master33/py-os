@@ -55,13 +55,13 @@ class OOBEWizard(wx.Frame):
     def cycle_music(self):
         self.music_index = (self.music_index + 1) % len(MUSIC_FILES)
         track = MUSIC_FILES[self.music_index]
-        music_path = os.path.join(os.getcwd(), "music", track)
+        music_path = os.path.join(MUSIC_DIR, track)
         if os.path.exists(music_path):
             music_config = {"music": track}
             config_file = self.api.get_data_path("music_config.json")
             try:
-                with open(config_file, "w") as f:
-                    json.dump(music_config, f)
+                with open(config_file, "w", encoding="utf-8") as f:
+                    json.dump(music_config, f, ensure_ascii=False)
                 name = track.replace(".aif", "").replace(".wav", "").replace("_", " ").strip()
                 self.api.speak(f"Now playing: {name}")
             except Exception as e:
@@ -73,13 +73,13 @@ class OOBEWizard(wx.Frame):
         self.Destroy()
 
     def play_intro_music(self):
-        music_path = os.path.join(os.getcwd(), "music", "1996 Internet Starter Kit - Velkommen - Original Mix.wav")
+        music_path = os.path.join(MUSIC_DIR, "1996 Internet Starter Kit - Velkommen - Original Mix.wav")
         if os.path.exists(music_path):
             music_config = {"music": "1996 Internet Starter Kit - Velkommen - Original Mix.wav"}
             config_file = self.api.get_data_path("music_config.json")
             try:
-                with open(config_file, "w") as f:
-                    json.dump(music_config, f)
+                with open(config_file, "w", encoding="utf-8") as f:
+                    json.dump(music_config, f, ensure_ascii=False)
             except Exception as e:
                 print(f"Error setting music: {e}")
 
@@ -338,16 +338,16 @@ class OOBEWizard(wx.Frame):
     def finish_oobe(self):
         self.user_data["completed_oobe"] = True
         try:
-            with open(self.config_path, "w") as f:
-                json.dump(self.user_data, f, indent=4)
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(self.user_data, f, indent=4, ensure_ascii=False)
         except Exception as e:
             print(f"Error saving config: {e}")
         
         # Reset music to None after OOBE
         music_config = {"music": "None"}
         try:
-            with open(self.api.get_data_path("music_config.json"), "w") as f:
-                json.dump(music_config, f)
+            with open(self.api.get_data_path("music_config.json"), "w", encoding="utf-8") as f:
+                json.dump(music_config, f, ensure_ascii=False)
         except Exception as e:
             print(f"Error resetting music: {e}")
             

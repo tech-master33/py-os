@@ -6,6 +6,14 @@ import subprocess
 import threading
 import time
 
+from app_paths import get_repo_root
+
+# desktop.py lives beside this wizard, so relaunches resolve from the
+# repository root instead of the current working directory: an update finished
+# from a shortcut with a different "Start in" folder must still bring PyOS
+# back up.
+REPO_ROOT = get_repo_root()
+
 OOBE_MUSIC = "1996 Internet Starter Kit - Velkommen - Original Mix.wav"
 
 
@@ -13,7 +21,7 @@ def run_text_mode_update(data_dir):
     from speech import engine
     state_path = os.path.join(data_dir, "update_state.json")
     try:
-        with open(state_path, "r") as f:
+        with open(state_path, "r", encoding="utf-8") as f:
             state = json.load(f)
     except Exception:
         return
@@ -49,12 +57,12 @@ def run_text_mode_update(data_dir):
         time.sleep(1)
 
     state["phase"] = 2
-    with open(state_path, "w") as f:
-        json.dump(state, f)
+    with open(state_path, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False)
 
     sys.stdout.write("\033[0m\033[2J\033[H")
     sys.stdout.flush()
-    subprocess.Popen([sys.executable, os.path.join(os.getcwd(), "desktop.py")], cwd=os.getcwd())
+    subprocess.Popen([sys.executable, os.path.join(REPO_ROOT, "desktop.py")], cwd=str(REPO_ROOT))
     sys.exit(0)
 
 class UpdateWizard(wx.Frame):
@@ -66,7 +74,7 @@ class UpdateWizard(wx.Frame):
         self.on_finish = on_finish
         self._cancelled = False
 
-        with open(state_path, "r") as f:
+        with open(state_path, "r", encoding="utf-8") as f:
             self.state = json.load(f)
         self.phase = self.state.get("phase", 1)
 
@@ -108,8 +116,8 @@ class UpdateWizard(wx.Frame):
         if os.path.exists(music_path):
             config_file = self.api.get_data_path("music_config.json")
             try:
-                with open(config_file, "w") as f:
-                    json.dump({"music": OOBE_MUSIC}, f)
+                with open(config_file, "w", encoding="utf-8") as f:
+                    json.dump({"music": OOBE_MUSIC}, f, ensure_ascii=False)
             except Exception:
                 pass
 
@@ -151,14 +159,14 @@ class UpdateWizard(wx.Frame):
 
     def _save_and_reboot(self):
         try:
-            with open(self.state_path, "w") as f:
-                json.dump(self.state, f)
+            with open(self.state_path, "w", encoding="utf-8") as f:
+                json.dump(self.state, f, ensure_ascii=False)
         except Exception:
             pass
         wx.CallAfter(self._reboot)
 
     def _reboot(self):
-        subprocess.Popen([sys.executable, os.path.join(os.getcwd(), "desktop.py")], cwd=os.getcwd())
+        subprocess.Popen([sys.executable, os.path.join(REPO_ROOT, "desktop.py")], cwd=str(REPO_ROOT))
         wx.GetApp().ExitMainLoop()
 
     def _finish_updates(self):

@@ -6,6 +6,7 @@ import threading
 import platform
 import shutil
 from platform_support import get_shells
+from arg_split import split_quoted_args
 from app_paths import get_data_dir
 
 class VirtualOS:
@@ -26,19 +27,24 @@ class VirtualOS:
                 self._create_default_files()
 
     def _create_default_files(self):
-        with open(os.path.join(self.root_dir, "welcome.txt"), "w") as f:
+        with open(os.path.join(self.root_dir, "welcome.txt"), "w", encoding="utf-8") as f:
             f.write("Welcome to BlindOS. This is a safe environment for you to explore.")
         os.makedirs(os.path.join(self.root_dir, "documents"))
 
     def get_real_path(self, virtual_path):
-        # Very basic path resolution
+        """Resolve a virtual path, absolute or relative to the current folder.
+
+        os.path.normpath produces host separators, and on Windows that means a
+        leading backslash, which os.path.join would treat as an absolute path
+        and silently escape the PyOS Drive. Both separators are therefore
+        stripped from the start of the resolved path before it is joined onto
+        the drive root.
+        """
         if virtual_path.startswith("/"):
-            rel_path = virtual_path.lstrip("/")
+            rel_path = virtual_path
         else:
-            # Handle relative paths from current cwd
-            current_abs_vpath = os.path.join(self.cwd, virtual_path)
-            rel_path = os.path.normpath(current_abs_vpath).lstrip("/")
-        
+            rel_path = os.path.join(self.cwd, virtual_path)
+        rel_path = os.path.normpath(rel_path).lstrip("/\\")
         return os.path.join(self.root_dir, rel_path)
 
     def _shell_reader(self):
@@ -92,11 +98,15 @@ class VirtualOS:
             self.shell_proc.stdin.flush()
             return ""
 
-        parts = command_str.lower().split()
+        # The command word is matched case-insensitively, but the arguments
+        # keep the case the user typed: file names are case sensitive on macOS
+        # and Linux, and even on Windows a lowercased name is confusing to read
+        # back. Quotes keep file names with spaces in one piece.
+        parts = split_quoted_args(command_str.strip())
         if not parts:
             return "No command entered."
         
-        cmd = parts[0]
+        cmd = parts[0].lower()
         args = parts[1:]
 
         if cmd == "help":
@@ -104,7 +114,8 @@ class VirtualOS:
             return (
                 "Available commands: list, open, create, delete, where, time, exit, "
                 "shutdown, reboot, shell. Available host shells: "
-                f"{available_shells}."
+                f"{available_shells}. File names with spaces are typed in double "
+                "quotes, for example open \"My Report.txt\"."
             )
         
         elif cmd == "list":
@@ -119,7 +130,7 @@ class VirtualOS:
 
         elif cmd == "time":
             now = datetime.datetime.now()
-            return f"The current time is {now.strftime('%H:%M')}."
+            return f"The current time is {now.strftime('%H:%M:%S')}."
 
         elif cmd == "open":
             if not args:
@@ -133,8 +144,11 @@ class VirtualOS:
                 return f"Opened directory {file_name}."
             
             if os.path.exists(real_path):
-                with open(real_path, "r") as f:
-                    content = f.read()
+                try:
+                    with open(real_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                except UnicodeDecodeError:
+                    return f"Cannot read {file_name}. It is not a UTF-8 text file."
                 return f"Reading {file_name}: {content}"
             else:
                 return f"File {file_name} not found."
@@ -144,7 +158,7 @@ class VirtualOS:
                 return "Please specify a name for the new file."
             file_name = args[0]
             real_path = self.get_real_path(file_name)
-            with open(real_path, "w") as f:
+            with open(real_path, "w", encoding="utf-8") as f:
                 f.write("New file created by user.")
             return f"File {file_name} created successfully."
 

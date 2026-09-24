@@ -43,8 +43,9 @@ class MessageService:
                 # Notify active app subscribers
                 for callback in self.subscribers:
                     wx.CallAfter(callback, formatted_msg)
-            except:
-                break
+            except Exception:
+                if not self.running:
+                    break
 
     def subscribe(self, callback):
         if callback not in self.subscribers:

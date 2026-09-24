@@ -21,10 +21,14 @@ An accessible operating system simulator for blind and visually impaired users.
 - `open <name>`: Open a folder or read a text file.
 - `create <name>`: Create a new text file.
 - `delete <name>`: Delete a file or empty folder.
-- `time`: Speak the current time.
+- `time`: Speak the current time, to the second.
 - `where`: Speak current directory.
 - `exit`: Close the simulator.
 - `shell <type>`: Open a host shell such as `zsh`, `bash`, `sh`, `cmd`, or `powershell`, depending on your platform.
+
+File names keep the case you type, so `open Report.txt` finds `Report.txt`. Put double quotes
+around any name with spaces, for example `open "My Report.txt"`. Text files are read as
+UTF-8; a file that is not UTF-8 text is reported instead of being read out as gibberish.
 
 ## AI Assistant
 
@@ -184,6 +188,16 @@ Terminal. Host Files provides access to normal files on the computer. Existing f
 from the legacy repository `vfs` folder are copied to the PyOS data directory on first
 launch.
 
+## Paths and file encoding
+
+PyOS finds its own program files, the `music` folder and the NVDA DLL from the folder the
+simulator is installed in, never from the working directory it happens to be started from.
+Shortcuts, scripts and the update wizard can therefore launch it from anywhere without
+losing speech, sounds or apps.
+
+All configuration files are written as UTF-8 JSON, so names with accents or symbols survive
+being saved and read back on any platform.
+
 ## Support Matrix
 
 - Windows: Best with `wxPython`, optional NVDA Controller DLL, and optional `sounddevice` plus `soundfile` for recording.
@@ -238,7 +252,7 @@ To enable direct NVDA support:
     pip install -r requirements.txt
     ```
 
-4.  **NVDA Controller Client DLL (for direct NVDA integration):**
+5.  **NVDA Controller Client DLL (for direct NVDA integration):**
     If you intend to use the direct NVDA integration feature, follow these steps:
     a. Download the appropriate DLL file: `nvdaControllerClient64.dll` (for 64-bit Python) or `nvdaControllerClient32.dll` (for 32-bit Python) from the [NVDA GitHub Repository extras page](https://github.com/nvaccess/nvda/tree/master/extras/controllerClient).
     b. Copy the downloaded DLL file into the main project directory (the same folder where `desktop.py` is located).
