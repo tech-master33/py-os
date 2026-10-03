@@ -1,0 +1,50 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pyos-app-catalog-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-22",
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pyos-app-catalog-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    "PUBLISH_PUBLIC_KEY": ""
+  },
+  "env": {
+    "staging": {
+      "name": "pyos-app-catalog-staging",
+      "workers_dev": true,
+      "vars": {
+        "PUBLISH_PUBLIC_KEY": "REPLACE_WITH_STAGING_PUBLIC_KEY"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "pyos-app-catalog-staging",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "migrations"
+        }
+      ]
+    },
+    "production": {
+      "name": "pyos-app-catalog",
+      "workers_dev": true,
+      "vars": {
+        "PUBLISH_PUBLIC_KEY": "REPLACE_WITH_PRODUCTION_PUBLIC_KEY"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "pyos-app-catalog",
+          "database_id": "00000000-0000-0000-0000-000000000000",
+          "migrations_dir": "migrations"
+        }
+      ]
+    }
+  }
+}
