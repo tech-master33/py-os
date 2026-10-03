@@ -115,26 +115,19 @@ URL and key must be configured before a production PyOS release; never ship the 
 endpoint as the production catalog. The client refuses plain HTTP and verifies the pinned
 public key before downloading chunks.
 
-On the maintainer computer, set the URL in the current PowerShell session. Enter secrets
-through a secure prompt so the values are not saved in command history:
+On the maintainer computer, load the production publisher credentials from the local
+`%APPDATA%\\PyOS` files into the current PowerShell process. The private key is stored as
+raw 32-byte Ed25519 data; base64-encode it for the publisher without printing it:
 
 ```powershell
-$env:APP_CATALOG_API_URL = "https://<worker-name>.<account-subdomain>.workers.dev"
-function Set-CatalogSecret([string]$Name) {
-  $Secret = Read-Host -AsSecureString $Name
-  $Pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secret)
-  try {
-    [Environment]::SetEnvironmentVariable(
-      $Name,
-      [Runtime.InteropServices.Marshal]::PtrToStringBSTR($Pointer),
-      "Process"
-    )
-  } finally {
-    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($Pointer)
-  }
-}
-Set-CatalogSecret "APP_CATALOG_PUBLISH_TOKEN"
-Set-CatalogSecret "APP_CATALOG_SIGNING_KEY"
+$secretDir = Join-Path $env:APPDATA 'PyOS'
+$env:APP_CATALOG_API_URL = 'https://pyos-app-catalog.tech-chat.workers.dev'
+$env:APP_CATALOG_SIGNING_KEY = [Convert]::ToBase64String(
+  [IO.File]::ReadAllBytes((Join-Path $secretDir 'app-catalog-production.key'))
+)
+$env:APP_CATALOG_PUBLISH_TOKEN = (
+  Get-Content -Raw (Join-Path $secretDir 'app-catalog-production.token')
+).Trim()
 ```
 
 Review the app source and its entry in `app_catalog/registry.json`, including its version,
