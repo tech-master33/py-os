@@ -2,6 +2,7 @@ import wx
 import os
 import json
 import importlib.util
+import hashlib
 import speech
 import kernel
 import sounds
@@ -9,11 +10,107 @@ import threading
 import traceback
 import sys
 import time
+from pathlib import Path
 from api import SystemAPI
-from app_paths import get_data_dir, get_repo_root
+from app_paths import get_data_dir, get_repo_root, get_user_apps_dir
 import platform_support
 from arg_split import split_quoted_args
 from file_dialogs import choose_file
+
+
+def discover_user_packages(bundled_apps_dir, user_apps_dir):
+    bundled_root = Path(bundled_apps_dir)
+    reserved_names = set()
+    if bundled_root.is_dir():
+        reserved_names.update(
+            path.stem.casefold().replace("-", "_")
+            for path in bundled_root.iterdir()
+            if path.is_file()
+            and path.suffix == ".py"
+            and path.name not in {"__init__.py", "oobe.py"}
+        )
+        reserved_names.update(
+            path.name.casefold().replace("-", "_")
+            for path in bundled_root.iterdir()
+            if path.is_dir() and (path / "__init__.py").is_file()
+        )
+
+    user_root = Path(user_apps_dir)
+    if not user_root.is_dir():
+        return []
+    resolved_root = user_root.resolve()
+    packages = []
+    for candidate in sorted(user_root.iterdir(), key=lambda path: path.name.casefold()):
+        if (
+            candidate.is_symlink()
+            or not candidate.is_dir()
+            or candidate.name.casefold().replace("-", "_") in reserved_names
+            or (candidate / "__init__.py").is_symlink()
+            or not (candidate / "__init__.py").is_file()
+        ):
+            continue
+        try:
+            resolved = candidate.resolve(strict=True)
+            resolved.relative_to(resolved_root)
+        except (OSError, ValueError):
+            continue
+        packages.append(resolved)
+    return packages
+
+
+def load_app_package(package_dir, api, allowed_root=None):
+    source = Path(package_dir)
+    if source.is_symlink():
+        raise ValueError("app package cannot be a symbolic link")
+    package_root = source.resolve(strict=True)
+    if allowed_root is not None:
+        try:
+            package_root.relative_to(Path(allowed_root).resolve(strict=True))
+        except ValueError as error:
+            raise ValueError("app package is outside its allowed directory") from error
+    entry_point = package_root / "__init__.py"
+    if not package_root.is_dir() or entry_point.is_symlink() or not entry_point.is_file():
+        raise ValueError("app package must contain a regular __init__.py")
+    for package_item in package_root.rglob("*"):
+        if package_item.is_symlink():
+            raise ValueError("app package cannot contain symbolic links")
+        try:
+            package_item.resolve(strict=True).relative_to(package_root)
+        except (OSError, ValueError) as error:
+            raise ValueError("app package contains a path outside its package directory") from error
+
+    from api import BlindApp
+
+    identity = hashlib.sha256(str(package_root).encode("utf-8")).hexdigest()[:20]
+    module_name = f"_pyos_app_package_{identity}"
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        entry_point,
+        submodule_search_locations=[str(package_root)],
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"unable to load app package at {package_root}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        for name in list(sys.modules):
+            if name == module_name or name.startswith(f"{module_name}."):
+                sys.modules.pop(name, None)
+        raise
+
+    instances = []
+    for attribute in dir(module):
+        app_class = getattr(module, attribute)
+        if (
+            isinstance(app_class, type)
+            and issubclass(app_class, BlindApp)
+            and app_class is not BlindApp
+        ):
+            instances.append(app_class(api))
+    return instances
+
 
 class RecoveryConsole(wx.Dialog):
     def __init__(self, parent, missing_files):
@@ -343,9 +440,20 @@ class DesktopFrame(wx.Frame):
             os.makedirs(apps_dir)
         
         self.apps = []
-        for filename in os.listdir(apps_dir):
+        for filename in sorted(os.listdir(apps_dir), key=str.casefold):
             if filename.endswith(".py") and filename != "__init__.py" and filename != "oobe.py":
                 self.load_app_from_file(os.path.join(apps_dir, filename))
+        for package_dir in discover_user_packages(apps_dir, get_user_apps_dir()):
+            try:
+                self.apps.extend(
+                    load_app_package(
+                        package_dir,
+                        self.api,
+                        allowed_root=get_user_apps_dir(),
+                    )
+                )
+            except Exception:
+                continue
         self.refresh_app_list()
 
     def load_app_from_file(self, path):

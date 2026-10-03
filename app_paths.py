@@ -11,3 +11,8 @@ def get_data_dir():
     if override:
         return override
     return str(Path.home() / ".py-os")
+
+
+def get_user_apps_dir():
+    """Return the per-user plugin directory without creating it."""
+    return str(Path(get_data_dir()) / "apps")

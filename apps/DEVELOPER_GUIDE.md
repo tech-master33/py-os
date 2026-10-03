@@ -154,3 +154,29 @@ If you add, rename or remove an app or a Terminal command, update the matching s
 and a model told about an app that no longer exists will happily describe it.
 `tests/test_pyos_knowledge.py` checks the Terminal commands against the kernel's own help
 output, so a new command fails the suite until the reference mentions it.
+
+## 10. App Catalog Packages
+
+PyOS can load installed multi-file app packages from the per-user `apps` directory inside
+the PyOS data folder. A catalog package must use a package-root `__init__.py`; sibling
+modules should be imported with relative imports, for example `from .helpers import value`.
+The package is imported under a private module namespace, so its helper modules do not
+replace bundled top-level modules.
+
+The PyOS App Catalog downloads maintainer-reviewed releases from the configured HTTPS API.
+Each release has an Ed25519-signed manifest and hashes for the ZIP archive, its chunks, and
+every file. PyOS verifies those values and validates all archive paths before installing
+the package. Catalog packages are capped at 100 MiB compressed and 100 MiB expanded. PyOS
+does not run `pip`, package build hooks, or other installation scripts.
+
+**Installing a plugin executes its Python code locally with the permissions of the PyOS
+process. Plugins are not sandboxed** and can access host files and the network. Users should
+install only publishers they trust. A signature identifies the authorized publisher; it
+does not make plugin code harmless.
+
+Catalog releases are maintainer-published only. The reviewed package list is
+`app_catalog/registry.json`; use `app_catalog/publish.py` and the operations guide in
+`app_server/README.md` to publish an approved version. Keep the Ed25519 private signing key
+and API publish token in the maintainer's local environment or secret manager. Never commit
+them, place them in package files, or send them in public issues or chat. The private
+signing key is never sent to the Worker.
