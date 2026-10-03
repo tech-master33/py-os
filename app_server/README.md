@@ -14,6 +14,8 @@ package is published in both catalogs. PyOS is configured to use the production 
 public verification key; private signing keys and publish tokens are stored outside the
 repository under `%APPDATA%\\PyOS` on the maintainer machine. Keep those files backed up
 securely; never commit or send them.
+Production `welcome` 1.0.0 has been verified through the signed client after migration;
+its package chunk is in shard 0 and its duplicate legacy chunk has been removed.
 
 ## Production D1 allocation
 
@@ -225,11 +227,12 @@ database only. Never copy a test signing key or test package into production.
 
 ## Storage, rollback, and key rotation
 
-D1 stores one 1 MiB BLOB per row, plus signed manifests and catalog metadata. Old release
-chunks are retained unless an owner removes them; there is no automated pruning endpoint.
-Export the database before deleting old releases. Only delete non-current versions, and
-delete their chunk rows before the version row. Never remove the version referenced by the
-current `apps` row. Public downloads are read-only.
+D1 stores one 1 MiB BLOB per row, plus signed manifests and catalog metadata. There is no
+scheduled retention policy: cleanup is an explicit, authenticated per-release operation.
+The legacy-migration cleanup route verifies the finalized shard copy before removing
+duplicate legacy chunks. For removing old releases, export the database first; only delete
+non-current versions, and delete their chunk rows before the version row. Never remove the
+version referenced by the current `apps` row. Public downloads are read-only.
 
 Worker code rollback and D1 data recovery are separate operations. Use Cloudflare's Worker
 version history to roll back the Worker code; a rollback does not undo D1 migrations or
