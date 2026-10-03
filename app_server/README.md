@@ -5,6 +5,15 @@ catalog. The Worker serves live catalog metadata and signed app-package chunks; 
 executes app code. Packages remain maintainer-published and each release is limited to
 100 MiB compressed and 100 MiB extracted.
 
+## Current deployment status
+
+The staging Worker is deployed at
+`https://pyos-app-catalog-staging.tech-chat.workers.dev` with its D1 migration and
+maintainer-only publishing secret configured. The reviewed `welcome` 1.0.0 package has
+been published and downloaded through the signed client flow. Production has not been
+provisioned or deployed; the desktop catalog remains unconfigured until its production
+HTTPS endpoint and pinned public key are approved.
+
 ## Local development
 
 Requirements: Node.js 22 or newer and npm. From the repository root:

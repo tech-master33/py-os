@@ -20,13 +20,13 @@
       "name": "pyos-app-catalog-staging",
       "workers_dev": true,
       "vars": {
-        "PUBLISH_PUBLIC_KEY": "REPLACE_WITH_STAGING_PUBLIC_KEY"
+        "PUBLISH_PUBLIC_KEY": "i/qv65ccDvAVeoGxht4XfMgVSB4qEtsBkLIPfgZvSYM="
       },
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "pyos-app-catalog-staging",
-          "database_id": "00000000-0000-0000-0000-000000000000",
+          "database_id": "b79eb466-ebdb-48e6-8435-61ee9550de8c",
           "migrations_dir": "migrations"
         }
       ]
