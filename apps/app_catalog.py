@@ -10,8 +10,8 @@ from api import BlindApp
 from app_catalog_client import CatalogClient, CatalogError
 from app_paths import get_user_apps_dir
 
-CATALOG_API_URL = ""
-CATALOG_PUBLIC_KEY = ""
+CATALOG_API_URL = "https://pyos-app-catalog.tech-chat.workers.dev"
+CATALOG_PUBLIC_KEY = "5MXwukzUkk7iWuIZo9xvbhYwf9Yeg+/3A0up1p41isY="
 INSTALL_WARNING = (
     "Apps run locally with PyOS's permissions and are not sandboxed. "
     "Install only apps from a publisher you trust."

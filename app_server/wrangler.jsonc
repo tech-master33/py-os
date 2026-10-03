@@ -35,13 +35,13 @@
       "name": "pyos-app-catalog",
       "workers_dev": true,
       "vars": {
-        "PUBLISH_PUBLIC_KEY": "REPLACE_WITH_PRODUCTION_PUBLIC_KEY"
+        "PUBLISH_PUBLIC_KEY": "5MXwukzUkk7iWuIZo9xvbhYwf9Yeg+/3A0up1p41isY="
       },
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "pyos-app-catalog",
-          "database_id": "00000000-0000-0000-0000-000000000000",
+          "database_id": "132a015c-15f0-4c59-92b1-64a3f7eb7fa3",
           "migrations_dir": "migrations"
         }
       ]

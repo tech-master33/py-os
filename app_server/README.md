@@ -7,12 +7,13 @@ executes app code. Packages remain maintainer-published and each release is limi
 
 ## Current deployment status
 
-The staging Worker is deployed at
-`https://pyos-app-catalog-staging.tech-chat.workers.dev` with its D1 migration and
-maintainer-only publishing secret configured. The reviewed `welcome` 1.0.0 package has
-been published and downloaded through the signed client flow. Production has not been
-provisioned or deployed; the desktop catalog remains unconfigured until its production
-HTTPS endpoint and pinned public key are approved.
+Staging is deployed at `https://pyos-app-catalog-staging.tech-chat.workers.dev`, and
+production is deployed at `https://pyos-app-catalog.tech-chat.workers.dev`. Each has its
+own D1 database, publish token, and Ed25519 signing key. The reviewed `welcome` 1.0.0
+package is published in both catalogs. PyOS is configured to use the production URL and
+public verification key; private signing keys and publish tokens are stored outside the
+repository under `%APPDATA%\\PyOS` on the maintainer machine. Keep those files backed up
+securely; never commit or send them.
 
 ## Local development
 
