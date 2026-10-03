@@ -5,13 +5,18 @@ import subprocess
 import sys
 import platform
 import json
+import posixpath
+import re
 import threading
 import time
+import tempfile
 import speech
 from api import BlindApp
 import audio_devices
 from app_paths import get_repo_root
 from platform_support import open_external_file
+from cloud_drive_client import CloudDriveClient, CloudDriveError
+from apps.app_catalog import CATALOG_API_URL
 
 try:
     import sounddevice as sd
@@ -510,19 +515,37 @@ class FileExplorerApp(BlindApp):
     def __init__(self, api):
         super().__init__(api)
         self.name = "File Explorer"
-        self.description = "Browse your files."
+        self.description = "Browse local, PyOS, and shared cloud-drive files."
         self.category = "System"
-        self.help_text = "Use Arrow keys to navigate, Enter to open, and Backspace to go up."
-        self.docs = "File Explorer provides access to the PyOS Drive and the host file system."
+        self.help_text = (
+            "Use Arrow keys to navigate, Enter to open, and Backspace to go up. "
+            "Create Shared Drive creates a public drive. Add Shared Drive connects "
+            "to a drive ID. Anyone with that ID can read, upload, change, and delete "
+            "its files."
+        )
+        self.docs = (
+            "File Explorer provides access to the PyOS Drive, the host file system, "
+            "and Py-OS shared drives. Shared-drive IDs grant full read/write/delete "
+            "access to anyone who knows them. Store and share them like passwords. "
+            "Use Upload File, New Folder, Delete Entry, Remove Connection, and "
+            "Delete Empty Drive to manage connected drives."
+        )
         self.vfs_root = os.path.abspath(self.api.get_vfs().root_dir)
         self.current_dir = None
         self.current_source = None
         self.history = []
         self.items = []
         self.platform_name = platform.system()
+        self.cloud_connections_path = self.api.get_data_path("cloud_drives.json")
+        self.cloud_connections = []
+        self.cloud_connections_load_error = False
+        self.cloud_client = None
+        self.cloud_drive_id = None
+        self.cloud_drive_name = None
+        self.cloud_drive_info = None
 
     def run(self):
-        self.frame = wx.Frame(None, title="File Explorer - This PC", size=(700, 500))
+        self.frame = wx.Frame(None, title="File Explorer - This PC", size=(820, 600))
         panel = wx.Panel(self.frame)
         panel.SetBackgroundColour(wx.Colour(0, 0, 0))
         
@@ -543,6 +566,21 @@ class FileExplorerApp(BlindApp):
         
         main_sizer.Add(nav_sizer, 0, wx.EXPAND | wx.ALL, 5)
 
+        drive_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.create_drive_button = wx.Button(panel, label="&Create Shared Drive")
+        self.add_drive_button = wx.Button(panel, label="&Add Shared Drive")
+        self.create_drive_button.Bind(wx.EVT_BUTTON, self.on_create_shared_drive)
+        self.add_drive_button.Bind(wx.EVT_BUTTON, self.on_add_shared_drive)
+        self.create_drive_button.Bind(
+            wx.EVT_SET_FOCUS, lambda e: self.api.speak("Create Shared Drive")
+        )
+        self.add_drive_button.Bind(
+            wx.EVT_SET_FOCUS, lambda e: self.api.speak("Add Shared Drive")
+        )
+        drive_sizer.Add(self.create_drive_button, 0, wx.ALL, 5)
+        drive_sizer.Add(self.add_drive_button, 0, wx.ALL, 5)
+        main_sizer.Add(drive_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 5)
+
         # --- File List ---
         self.list = wx.ListCtrl(panel, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
         self.list.SetBackgroundColour(wx.Colour(20, 20, 20))
@@ -553,14 +591,39 @@ class FileExplorerApp(BlindApp):
         
         # --- Buttons ---
         button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        connection_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.upload_button = wx.Button(panel, label="&Upload File")
+        self.new_folder_button = wx.Button(panel, label="New &Folder")
+        self.delete_entry_button = wx.Button(panel, label="Delete &Entry")
+        self.remove_connection_button = wx.Button(panel, label="Remove &Connection")
+        self.delete_drive_button = wx.Button(panel, label="Delete Empty &Drive")
         refresh_btn = wx.Button(panel, label="&Refresh")
         close_btn = wx.Button(panel, label="&Close")
-        
-        button_sizer.Add(refresh_btn, 0, wx.ALL, 5)
-        button_sizer.AddStretchSpacer(1)
-        button_sizer.Add(close_btn, 0, wx.ALL, 5)
+        self.upload_button.Bind(wx.EVT_BUTTON, self.on_upload_to_shared_drive)
+        self.new_folder_button.Bind(wx.EVT_BUTTON, self.on_create_cloud_folder)
+        self.delete_entry_button.Bind(wx.EVT_BUTTON, self.on_delete_cloud_entry)
+        self.remove_connection_button.Bind(wx.EVT_BUTTON, self.on_remove_drive_connection)
+        self.delete_drive_button.Bind(wx.EVT_BUTTON, self.on_delete_empty_drive)
+        self.upload_button.Bind(wx.EVT_SET_FOCUS, lambda e: self.api.speak("Upload File"))
+        self.new_folder_button.Bind(wx.EVT_SET_FOCUS, lambda e: self.api.speak("New Folder"))
+        self.delete_entry_button.Bind(wx.EVT_SET_FOCUS, lambda e: self.api.speak("Delete Entry"))
+        self.remove_connection_button.Bind(
+            wx.EVT_SET_FOCUS, lambda e: self.api.speak("Remove Connection")
+        )
+        self.delete_drive_button.Bind(
+            wx.EVT_SET_FOCUS, lambda e: self.api.speak("Delete Empty Drive")
+        )
+        button_sizer.Add(self.upload_button, 0, wx.ALL, 3)
+        button_sizer.Add(self.new_folder_button, 0, wx.ALL, 3)
+        button_sizer.Add(self.delete_entry_button, 0, wx.ALL, 3)
+        connection_sizer.Add(self.remove_connection_button, 0, wx.ALL, 3)
+        connection_sizer.Add(self.delete_drive_button, 0, wx.ALL, 3)
+        connection_sizer.Add(refresh_btn, 0, wx.ALL, 5)
+        connection_sizer.AddStretchSpacer(1)
+        connection_sizer.Add(close_btn, 0, wx.ALL, 5)
         
         main_sizer.Add(button_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        main_sizer.Add(connection_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         
         panel.SetSizer(main_sizer)
         
@@ -572,6 +635,8 @@ class FileExplorerApp(BlindApp):
         self.address_bar.Bind(wx.EVT_TEXT_ENTER, self.go_to_address)
         self.list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.on_item_activated)
         self.list.Bind(wx.EVT_LIST_ITEM_FOCUSED, self.on_item_focused)
+        self.list.Bind(wx.EVT_LIST_ITEM_SELECTED, lambda e: self._update_drive_controls())
+        self.list.Bind(wx.EVT_LIST_ITEM_DESELECTED, lambda e: self._update_drive_controls())
         self.list.Bind(wx.EVT_KEY_DOWN, self.on_key_down)
         self.list.Bind(wx.EVT_SET_FOCUS, lambda e: self.api.speak("File list"))
         refresh_btn.Bind(wx.EVT_BUTTON, lambda e: self.refresh_files())
@@ -580,10 +645,376 @@ class FileExplorerApp(BlindApp):
         close_btn.Bind(wx.EVT_SET_FOCUS, lambda e: self.api.speak("Close"))
         self.frame.Bind(wx.EVT_CLOSE, self.on_close)
         
+        self._load_cloud_connections()
         self.refresh_files()
         self.frame.Show()
         self.api.speak("File Explorer opened.")
         self.list.SetFocus()
+
+    def _ensure_cloud_client(self):
+        if self.cloud_client is None:
+            self.cloud_client = CloudDriveClient(CATALOG_API_URL)
+        return self.cloud_client
+
+    def _load_cloud_connections(self):
+        if not os.path.exists(self.cloud_connections_path):
+            self.cloud_connections = []
+            return
+        try:
+            with open(self.cloud_connections_path, "r", encoding="utf-8") as handle:
+                connections = json.load(handle)
+        except (OSError, json.JSONDecodeError) as error:
+            self.cloud_connections_load_error = True
+            self.api.speak(f"Could not load saved shared drives: {error}")
+            return
+        if not isinstance(connections, list) or any(
+            not isinstance(connection, dict)
+            or set(connection) != {"id", "name"}
+            or not isinstance(connection.get("id"), str)
+            or re.fullmatch(r"[A-Za-z0-9_-]{32}", connection["id"]) is None
+            or not isinstance(connection.get("name"), str)
+            or not connection["name"]
+            for connection in connections
+        ):
+            self.cloud_connections_load_error = True
+            self.api.speak("Saved shared-drive connections have an invalid format.")
+            return
+        self.cloud_connections = connections
+
+    def _save_cloud_connections(self):
+        if self.cloud_connections_load_error:
+            raise OSError("saved drive connections could not be read; refusing to overwrite them")
+        directory = os.path.dirname(self.cloud_connections_path)
+        os.makedirs(directory, exist_ok=True)
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=directory,
+                prefix=".cloud-drives-",
+                delete=False,
+            ) as handle:
+                temporary_path = handle.name
+                json.dump(self.cloud_connections, handle, ensure_ascii=False, indent=2)
+                handle.write("\n")
+            os.replace(temporary_path, self.cloud_connections_path)
+            temporary_path = None
+        finally:
+            if temporary_path and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
+
+    def _run_cloud_task(self, action, task, on_success):
+        self.api.speak(f"{action} started.")
+
+        def run_task():
+            try:
+                result = task()
+            except (CloudDriveError, OSError) as error:
+                wx.CallAfter(self.api.speak, f"{action} failed: {error}")
+                return
+            wx.CallAfter(on_success, result)
+
+        threading.Thread(target=run_task, daemon=True).start()
+
+    def on_create_shared_drive(self, event=None):
+        warning = (
+            "Anyone who gets this drive ID can read, upload, overwrite, and delete "
+            "every file in the drive. Share it only with people you trust. Continue?"
+        )
+        if wx.MessageBox(
+            warning,
+            "Public Shared Drive",
+            wx.YES_NO | wx.ICON_WARNING | wx.NO_DEFAULT,
+            self.frame,
+        ) != wx.YES:
+            return
+        name_dialog = wx.TextEntryDialog(
+            self.frame, "Choose a name for the shared drive:", "Create Shared Drive"
+        )
+        if name_dialog.ShowModal() != wx.ID_OK:
+            name_dialog.Destroy()
+            return
+        name = name_dialog.GetValue().strip()
+        name_dialog.Destroy()
+        if not name:
+            self.api.speak("A drive name is required.")
+            return
+
+        quota_dialog = wx.TextEntryDialog(
+            self.frame,
+            "Choose the drive's reserved size in MiB:",
+            "Drive Size",
+            "100",
+        )
+        if quota_dialog.ShowModal() != wx.ID_OK:
+            quota_dialog.Destroy()
+            return
+        quota_text = quota_dialog.GetValue().strip()
+        quota_dialog.Destroy()
+        try:
+            quota_mib = int(quota_text)
+        except ValueError:
+            self.api.speak("Drive size must be a whole number of mebibytes.")
+            return
+        if quota_mib <= 0:
+            self.api.speak("Drive size must be greater than zero.")
+            return
+        self._run_cloud_task(
+            "Creating shared drive",
+            lambda: self._ensure_cloud_client().create_drive(
+                name, quota_mib * 1024 * 1024
+            ),
+            self._on_cloud_drive_created,
+        )
+
+    def _on_cloud_drive_created(self, drive):
+        connection = {"id": drive["id"], "name": drive["name"]}
+        self.cloud_connections.append(connection)
+        try:
+            self._save_cloud_connections()
+        except OSError as error:
+            self.api.speak(
+                f"Drive was created, but its connection could not be saved: {error}"
+            )
+        wx.MessageBox(
+            f"Shared drive created.\n\nDrive ID:\n{drive['id']}\n\n"
+            "Anyone with this ID can read, change, and delete its files.",
+            "Share Shared Drive",
+            wx.OK | wx.ICON_INFORMATION,
+            self.frame,
+        )
+        self.refresh_files()
+
+    def on_add_shared_drive(self, event=None):
+        dialog = wx.TextEntryDialog(
+            self.frame,
+            "Enter the shared-drive ID. Anyone who knows an ID can change its files.",
+            "Add Shared Drive",
+        )
+        if dialog.ShowModal() != wx.ID_OK:
+            dialog.Destroy()
+            return
+        drive_id = dialog.GetValue().strip()
+        dialog.Destroy()
+        if any(item["id"] == drive_id for item in self.cloud_connections):
+            self.api.speak("That shared drive is already connected.")
+            return
+        self._run_cloud_task(
+            "Connecting to shared drive",
+            lambda: self._ensure_cloud_client().get_drive(drive_id),
+            self._on_cloud_drive_added,
+        )
+
+    def _on_cloud_drive_added(self, drive):
+        self.cloud_connections.append({"id": drive["id"], "name": drive["name"]})
+        try:
+            self._save_cloud_connections()
+        except OSError as error:
+            self.api.speak(f"Drive connected, but its connection could not be saved: {error}")
+        self.refresh_files()
+        self.api.speak(f"Added shared drive {drive['name']}.")
+
+    def _connect_shared_drive(self, drive_id):
+        try:
+            drive = self._ensure_cloud_client().get_drive(drive_id)
+        except CloudDriveError as error:
+            self.api.speak(f"Could not connect to shared drive: {error}")
+            return
+        self.history.append((self.current_source, self.current_dir, self.cloud_drive_id))
+        self.cloud_drive_id = drive["id"]
+        self.cloud_drive_name = drive["name"]
+        self.cloud_drive_info = drive
+        self.current_source = "cloud"
+        self.current_dir = ""
+        self.refresh_files()
+        self.api.speak(
+            f"Connected to {drive['name']}. "
+            f"{drive['used_bytes']} of {drive['quota_bytes']} bytes used."
+        )
+
+    def _selected_item(self):
+        index = self.list.GetFirstSelected()
+        if index < 0 or index >= len(self.items):
+            self.api.speak("Select a shared-drive item first.")
+            return None
+        return self.items[index]
+
+    def on_upload_to_shared_drive(self, event=None):
+        if self.current_source != "cloud":
+            self.api.speak("Open a shared drive before uploading a file.")
+            return
+        dialog = wx.FileDialog(
+            self.frame,
+            "Choose a file to upload:",
+            wildcard="All files (*.*)|*.*",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        )
+        if dialog.ShowModal() != wx.ID_OK:
+            dialog.Destroy()
+            return
+        local_path = dialog.GetPath()
+        dialog.Destroy()
+        remote_path = posixpath.join(self.current_dir or "", os.path.basename(local_path))
+        drive_id = self.cloud_drive_id
+        self._run_cloud_task(
+            "Uploading file",
+            lambda: self._ensure_cloud_client().upload_file(
+                drive_id, local_path, remote_path
+            ),
+            lambda result: self._on_cloud_file_changed("File uploaded.", result),
+        )
+
+    def _on_cloud_file_changed(self, message, result=None):
+        if result and result.get("cleanup_pending"):
+            message = f"{message} Old file cleanup is pending."
+        try:
+            self.cloud_drive_info = self._ensure_cloud_client().get_drive(
+                self.cloud_drive_id
+            )
+        except CloudDriveError as error:
+            self.api.speak(f"{message} Could not refresh drive usage: {error}")
+            return
+        self.refresh_files()
+        self.api.speak(message)
+
+    def on_create_cloud_folder(self, event=None):
+        if self.current_source != "cloud":
+            self.api.speak("Open a shared drive before creating a folder.")
+            return
+        dialog = wx.TextEntryDialog(
+            self.frame, "Enter a folder name:", "New Shared Drive Folder"
+        )
+        if dialog.ShowModal() != wx.ID_OK:
+            dialog.Destroy()
+            return
+        name = dialog.GetValue().strip()
+        dialog.Destroy()
+        path = posixpath.join(self.current_dir or "", name)
+        try:
+            self._ensure_cloud_client().create_directory(self.cloud_drive_id, path)
+        except CloudDriveError as error:
+            self.api.speak(f"Could not create folder: {error}")
+            return
+        self.refresh_files()
+        self.api.speak(f"Created folder {name}.")
+
+    def on_delete_cloud_entry(self, event=None):
+        if self.current_source != "cloud":
+            self.api.speak("Open a shared drive before deleting an entry.")
+            return
+        item = self._selected_item()
+        if item is None or item[3] != "cloud":
+            return
+        name, is_dir, path, _source = item
+        kind = "folder" if is_dir else "file"
+        if wx.MessageBox(
+            f"Delete the {kind} {name} from this public shared drive?",
+            "Delete Shared Drive Entry",
+            wx.YES_NO | wx.ICON_WARNING | wx.NO_DEFAULT,
+            self.frame,
+        ) != wx.YES:
+            return
+        try:
+            result = self._ensure_cloud_client().delete_entry(
+                self.cloud_drive_id, path
+            )
+        except CloudDriveError as error:
+            self.api.speak(f"Could not delete {name}: {error}")
+            return
+        self._on_cloud_file_changed(f"Deleted {name}.", result)
+
+    def on_remove_drive_connection(self, event=None):
+        item = self._selected_item()
+        if item is None or item[3] != "cloud_drive":
+            self.api.speak("Select a connected shared drive first.")
+            return
+        connection = next(
+            (entry for entry in self.cloud_connections if entry["id"] == item[2]),
+            None,
+        )
+        if connection is None:
+            self.api.speak("That shared drive connection is not saved.")
+            return
+        self.cloud_connections.remove(connection)
+        try:
+            self._save_cloud_connections()
+        except OSError as error:
+            self.cloud_connections.append(connection)
+            self.api.speak(f"Could not remove connection: {error}")
+            return
+        self.refresh_files()
+        self.api.speak(
+            f"Removed the connection to {connection['name']}. The shared drive was not deleted."
+        )
+
+    def on_delete_empty_drive(self, event=None):
+        if self.current_source == "cloud" and not self.current_dir:
+            drive_id = self.cloud_drive_id
+            drive_name = self.cloud_drive_name or "shared drive"
+        else:
+            item = self._selected_item()
+            if item is None or item[3] != "cloud_drive":
+                self.api.speak("Select a connected shared drive first.")
+                return
+            drive_id = item[2]
+            drive_name = item[0].removeprefix("Shared Drive: ")
+        if wx.MessageBox(
+            f"Delete the shared drive {drive_name}? It must be empty. "
+            "This permanently removes the drive, not just this connection.",
+            "Delete Empty Shared Drive",
+            wx.YES_NO | wx.ICON_WARNING | wx.NO_DEFAULT,
+            self.frame,
+        ) != wx.YES:
+            return
+        try:
+            self._ensure_cloud_client().delete_empty_drive(drive_id)
+        except CloudDriveError as error:
+            self.api.speak(f"Could not delete shared drive: {error}")
+            return
+        self.cloud_connections = [
+            entry for entry in self.cloud_connections if entry["id"] != drive_id
+        ]
+        try:
+            self._save_cloud_connections()
+        except OSError as error:
+            self.api.speak(
+                f"Drive was deleted, but its saved connection could not be removed: {error}"
+            )
+        self.current_source = None
+        self.current_dir = None
+        self.cloud_drive_id = None
+        self.cloud_drive_name = None
+        self.cloud_drive_info = None
+        self.refresh_files()
+        self.api.speak(f"Deleted shared drive {drive_name}.")
+
+    def _download_and_open(self, remote_path, name):
+        drive_id = self.cloud_drive_id
+        cache_dir = self.api.get_data_path(
+            os.path.join("cloud_drive_cache", drive_id)
+        )
+        local_path = os.path.join(cache_dir, *remote_path.split("/"))
+
+        def download():
+            return self._ensure_cloud_client().download_file(
+                drive_id, remote_path, local_path
+            )
+
+        def open_downloaded(path):
+            self.api.speak(f"Downloaded {name}. Opening it.")
+            lower = name.lower()
+            if lower.endswith((".txt", ".md", ".log", ".json", ".py", ".csv")):
+                self.api.launch_app("TextEditorApp", file_path=str(path))
+            elif lower.endswith((".wav", ".mp3", ".ogg", ".flac")):
+                self.api.launch_app("AudioRecorderApp", file_path=str(path))
+            else:
+                try:
+                    open_external_file(str(path))
+                except OSError as error:
+                    self.api.speak(f"Could not open file: {error}")
+
+        self._run_cloud_task("Downloading file", download, open_downloaded)
 
     def refresh_files(self):
         self.list.DeleteAllItems()
@@ -592,9 +1023,50 @@ class FileExplorerApp(BlindApp):
             if self.current_source is None:
                 self._add_item("PyOS Drive", True, self.vfs_root, "vfs")
                 self._add_item("Host Files", True, os.path.abspath(os.sep), "host")
+                for connection in self.cloud_connections:
+                    self._add_item(
+                        f"Shared Drive: {connection['name']}",
+                        True,
+                        connection["id"],
+                        "cloud_drive",
+                    )
                 self.address_bar.SetValue("This PC")
                 self.frame.SetTitle("File Explorer - This PC")
                 self.back_button.Enable(bool(self.history))
+                self._update_drive_controls()
+                return
+
+            if self.current_source == "cloud":
+                if self.cloud_client is None or self.cloud_drive_id is None:
+                    self.api.speak("Shared drive is not connected.")
+                    self.go_to_drives()
+                    return
+                raw_items = self.cloud_client.list_entries(
+                    self.cloud_drive_id, self.current_dir or ""
+                )
+                for entry in raw_items:
+                    full_path = (
+                        posixpath.join(self.current_dir, entry["name"])
+                        if self.current_dir
+                        else entry["name"]
+                    )
+                    self._add_item(
+                        entry["name"],
+                        entry["type"] == "directory",
+                        full_path,
+                        "cloud",
+                    )
+                location = f"{self.cloud_drive_name or 'Shared Drive'}:/{self.current_dir or ''}"
+                usage = ""
+                if self.cloud_drive_info:
+                    usage = (
+                        f" ({self.cloud_drive_info['used_bytes']} of "
+                        f"{self.cloud_drive_info['quota_bytes']} bytes used)"
+                    )
+                self.address_bar.SetValue(location)
+                self.frame.SetTitle(f"File Explorer - {location}{usage}")
+                self.back_button.Enable(bool(self.history))
+                self._update_drive_controls()
                 return
 
             raw_items = os.listdir(self.current_dir)
@@ -610,8 +1082,32 @@ class FileExplorerApp(BlindApp):
             self.address_bar.SetValue(location_name)
             self.frame.SetTitle(f"File Explorer - {location_name}")
             self.back_button.Enable(len(self.history) > 0)
+            self._update_drive_controls()
         except Exception as e:
             self.api.speak(f"Error: {e}")
+
+    def _update_drive_controls(self):
+        if not hasattr(self, "upload_button"):
+            return
+        selected = self.list.GetFirstSelected()
+        selected_source = (
+            self.items[selected][3]
+            if selected >= 0 and selected < len(self.items)
+            else None
+        )
+        is_cloud_folder = self.current_source == "cloud"
+        self.upload_button.Enable(is_cloud_folder)
+        self.new_folder_button.Enable(is_cloud_folder)
+        self.delete_entry_button.Enable(
+            is_cloud_folder and selected_source == "cloud"
+        )
+        self.remove_connection_button.Enable(
+            self.current_source is None and selected_source == "cloud_drive"
+        )
+        self.delete_drive_button.Enable(
+            (self.current_source is None and selected_source == "cloud_drive")
+            or (is_cloud_folder and not self.current_dir)
+        )
 
     def _add_item(self, name, is_dir, full_path, source):
         index = self.list.GetItemCount()
@@ -621,24 +1117,46 @@ class FileExplorerApp(BlindApp):
 
     def go_to_path(self, path, source=None):
         if os.path.isdir(path):
-            self.history.append((self.current_source, self.current_dir))
+            self.history.append(
+                (self.current_source, self.current_dir, self.cloud_drive_id)
+            )
             self.current_dir = os.path.abspath(path)
             self.current_source = source or ("vfs" if self.current_dir == self.vfs_root or self.current_dir.startswith(self.vfs_root + os.sep) else "host")
+            self.cloud_drive_id = None
+            self.cloud_drive_name = None
+            self.cloud_drive_info = None
             self.refresh_files()
             if self.items:
                 self.list.SetItemState(0, wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED, wx.LIST_STATE_SELECTED | wx.LIST_STATE_FOCUSED)
             self.api.speak(f"Entered {'PyOS Drive' if self.current_source == 'vfs' and self.current_dir == self.vfs_root else os.path.basename(self.current_dir) or self.current_dir}")
 
     def go_to_drives(self):
-        self.history.append((self.current_source, self.current_dir))
+        self.history.append(
+            (self.current_source, self.current_dir, self.cloud_drive_id)
+        )
         self.current_source = None
         self.current_dir = None
+        self.cloud_drive_id = None
+        self.cloud_drive_name = None
+        self.cloud_drive_info = None
         self.refresh_files()
         self.api.speak("This PC")
 
     def go_back(self, event):
         if self.history:
-            self.current_source, self.current_dir = self.history.pop()
+            (
+                self.current_source,
+                self.current_dir,
+                self.cloud_drive_id,
+            ) = self.history.pop()
+            if self.current_source != "cloud":
+                self.cloud_drive_name = None
+                self.cloud_drive_info = None
+            elif self.cloud_client and self.cloud_drive_id:
+                self.cloud_drive_info = self.cloud_client.get_drive(
+                    self.cloud_drive_id
+                )
+                self.cloud_drive_name = self.cloud_drive_info["name"]
             self.refresh_files()
             if self.current_source is None:
                 self.api.speak("Back to This PC")
@@ -647,6 +1165,18 @@ class FileExplorerApp(BlindApp):
 
     def go_up(self, event):
         if self.current_source is None:
+            return
+        if self.current_source == "cloud":
+            parent = posixpath.dirname(self.current_dir or "")
+            if parent == (self.current_dir or ""):
+                self.go_to_drives()
+                return
+            self.history.append(
+                (self.current_source, self.current_dir, self.cloud_drive_id)
+            )
+            self.current_dir = parent
+            self.refresh_files()
+            self.api.speak(f"Up to {self.cloud_drive_name or 'Shared Drive'}")
             return
         if self.current_source == "vfs" and self.current_dir == self.vfs_root:
             self.go_to_drives()
@@ -662,6 +1192,22 @@ class FileExplorerApp(BlindApp):
             return
         if path.lower() in {"pyos drive", "py-os drive"}:
             self.go_to_path(self.vfs_root, "vfs")
+            return
+        if self.current_source == "cloud":
+            prefix = f"{self.cloud_drive_name or 'Shared Drive'}:"
+            remote_path = path[len(prefix):].lstrip("/") if path.startswith(prefix) else path.lstrip("/")
+            if remote_path == "":
+                remote_path = ""
+            try:
+                self.cloud_client.list_entries(self.cloud_drive_id, remote_path)
+            except CloudDriveError as error:
+                self.api.speak(f"Could not open shared-drive path: {error}")
+                return
+            self.history.append(
+                (self.current_source, self.current_dir, self.cloud_drive_id)
+            )
+            self.current_dir = remote_path
+            self.refresh_files()
             return
         if os.path.isdir(path):
             self.go_to_path(path)
@@ -681,9 +1227,22 @@ class FileExplorerApp(BlindApp):
         name, is_dir, full_path, source = self.items[index]
         
         if is_dir:
-            self.go_to_path(full_path, source)
+            if source == "cloud_drive":
+                self._connect_shared_drive(full_path)
+            elif source == "cloud":
+                self.history.append(
+                    (self.current_source, self.current_dir, self.cloud_drive_id)
+                )
+                self.current_dir = full_path
+                self.refresh_files()
+                self.api.speak(f"Entered {name}")
+            else:
+                self.go_to_path(full_path, source)
         else:
             self.api.speak(f"Opening {name}", interrupt=False)
+            if source == "cloud":
+                self._download_and_open(full_path, name)
+                return
             lower = name.lower()
             if lower.endswith((".txt", ".md", ".log", ".json", ".py", ".csv")):
                 self.api.launch_app("TextEditorApp", file_path=full_path)

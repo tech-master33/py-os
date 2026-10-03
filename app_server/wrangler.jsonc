@@ -19,8 +19,15 @@
     "staging": {
       "name": "pyos-app-catalog-staging",
       "workers_dev": true,
+      "kv_namespaces": [
+        {
+          "binding": "DRIVE_FILES",
+          "id": "3b881065a59e40e6979bb1300071c112"
+        }
+      ],
       "vars": {
-        "PUBLISH_PUBLIC_KEY": "i/qv65ccDvAVeoGxht4XfMgVSB4qEtsBkLIPfgZvSYM="
+        "PUBLISH_PUBLIC_KEY": "i/qv65ccDvAVeoGxht4XfMgVSB4qEtsBkLIPfgZvSYM=",
+        "DRIVE_STORAGE_LIMIT_BYTES": "100000000"
       },
       "d1_databases": [
         {
@@ -34,8 +41,15 @@
     "production": {
       "name": "pyos-app-catalog",
       "workers_dev": true,
+      "kv_namespaces": [
+        {
+          "binding": "DRIVE_FILES",
+          "id": "05b6548473794bcaa2af4938e4063fa6"
+        }
+      ],
       "vars": {
-        "PUBLISH_PUBLIC_KEY": "5MXwukzUkk7iWuIZo9xvbhYwf9Yeg+/3A0up1p41isY="
+        "PUBLISH_PUBLIC_KEY": "5MXwukzUkk7iWuIZo9xvbhYwf9Yeg+/3A0up1p41isY=",
+        "DRIVE_STORAGE_LIMIT_BYTES": "800000000"
       },
       "d1_databases": [
         {

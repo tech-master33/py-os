@@ -54,7 +54,14 @@
       "migrations_dir": "migrations/package_storage"
     }
   ],
+  "kv_namespaces": [
+    {
+      "binding": "DRIVE_FILES",
+      "id": "20000000-0000-0000-0000-000000000000"
+    }
+  ],
   "vars": {
-    "PUBLISH_PUBLIC_KEY": ""
+    "PUBLISH_PUBLIC_KEY": "",
+    "DRIVE_STORAGE_LIMIT_BYTES": "1000000000"
   }
 }

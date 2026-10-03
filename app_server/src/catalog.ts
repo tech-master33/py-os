@@ -1,3 +1,5 @@
+import { handleDriveRequest } from "./drives";
+
 const JSON_HEADERS = {
   "content-type": "application/json; charset=utf-8",
   "cache-control": "no-store",
@@ -16,6 +18,8 @@ const utf8 = new TextEncoder();
 
 export interface CatalogEnv {
   DB: D1Database;
+  DRIVE_FILES?: KVNamespace;
+  DRIVE_STORAGE_LIMIT_BYTES?: string;
   APP_DB_0?: D1Database;
   APP_DB_1?: D1Database;
   APP_DB_2?: D1Database;
@@ -1110,6 +1114,10 @@ export async function handleCatalogRequest(
 ): Promise<Response> {
   const url = new URL(request.url);
   const parts = url.pathname.split("/").filter(Boolean);
+
+  if (url.pathname === "/v1/drives" || url.pathname.startsWith("/v1/drives/")) {
+    return handleDriveRequest(request, env);
+  }
 
   if (request.method === "GET" && url.pathname === "/v1/health") {
     return json({ status: "ok" });

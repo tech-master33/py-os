@@ -10,12 +10,45 @@ executes app code. Packages remain maintainer-published and each release is limi
 Staging is deployed at `https://pyos-app-catalog-staging.tech-chat.workers.dev`, and
 production is deployed at `https://pyos-app-catalog.tech-chat.workers.dev`. Each has its
 own D1 database, publish token, and Ed25519 signing key. The reviewed `welcome` 1.0.0
-package is published in both catalogs. PyOS is configured to use the production URL and
-public verification key; private signing keys and publish tokens are stored outside the
-repository under `%APPDATA%\\PyOS` on the maintainer machine. Keep those files backed up
-securely; never commit or send them.
-Production `welcome` 1.0.0 has been verified through the signed client after migration;
-its package chunk is in shard 0 and its duplicate legacy chunk has been removed.
+sample app was removed from both catalogs. PyOS is configured to use the production URL
+and public verification key; private signing keys and publish tokens are stored outside
+the repository under `%APPDATA%\\PyOS` on the maintainer machine. Keep those files backed
+up securely; never commit or send them.
+
+## Shared-drive service
+
+The Worker has a Py-OS-only shared-drive API backed by D1 metadata and Workers KV file
+chunks. It is **not WebDAV** and does not support standard WebDAV clients. The local
+client and File Explorer integration are implemented. Staging and production are
+deployed at the catalog Worker URLs above. The account owner confirmed the Workers Free
+plan. Both environments have separate KV namespaces and the shared-drive D1 migration
+has been applied. Staging and production create/connect/browse/upload/download/quota/
+delete flows were verified; both temporary test drives were deleted, and both namespaces
+and D1 drive tables were confirmed empty after verification.
+
+The design targets Cloudflare's Free Workers KV limits: 1 GB (1,000,000,000 bytes)
+aggregate stored data per account, 25 MiB maximum per value, 100,000 reads per day, and
+1,000 writes, deletes, and list operations per day. These limits are shared with any
+other KV use on the account; they can change, and requests past an operation limit fail.
+There is no R2 fallback or paid overage path. Separate service budgets are configured:
+100,000,000 bytes for staging and 800,000,000 bytes for production. Together they leave
+100,000,000 bytes below the account's 1 GB limit. The Worker rejects a configured service
+budget above 1,000,000,000 bytes, but account-wide KV usage must still be monitored.
+
+Each generated drive ID is a bearer capability: anyone who knows it can read, upload,
+overwrite, and delete every file in that drive. Share the ID like a password. There are
+no accounts, per-user permissions, recovery mechanism, or private-drive mode. KV is
+eventually consistent, so a write may not be immediately visible in every location.
+Quota exhaustion and KV operation limits are hard failures; do not enable paid services
+or change the storage design without explicit approval.
+
+The `CHAT_DATA` namespace was deleted at the account owner's request. Only the
+`pyos-shared-drives-staging` and `pyos-shared-drives-production` namespaces remain, bound
+as `DRIVE_FILES` in their respective Wrangler environments. For future deployments, keep
+the account on Workers Free, preserve the configured aggregate budget, apply pending
+migrations to staging first, and validate staging before production. The reserved
+`pyos-core-components` D1 remains untouched. The test Worker binding in
+`wrangler.test.jsonc` is local-only and is not a Cloudflare namespace ID.
 
 ## Production D1 allocation
 
@@ -195,11 +228,12 @@ $env:APP_CATALOG_PUBLISH_TOKEN = (
 ```
 
 Review the app source and its entry in `app_catalog/registry.json`, including its version,
-minimum PyOS version, package path, and release notes. Then publish:
+minimum PyOS version, package path, and release notes. The removed `welcome` sample is not
+publishable; use an app currently present in the registry and pass its reviewed ID/version:
 
 ```powershell
 Set-Location ..
-python -m app_catalog.publish publish --app-id welcome --version 1.0.0
+python -m app_catalog.publish publish --app-id $env:APP_ID --version $env:APP_VERSION
 ```
 
 The version passed on the command line must match the reviewed registry entry. The publisher
