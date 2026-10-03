@@ -1,3 +1,4 @@
+import hashlib
 import json
 from io import BytesIO
 import tempfile
@@ -201,6 +202,22 @@ class PublishTests(unittest.TestCase):
         (self.package / "large.bin").write_bytes(b"x" * 65)
         with patch("app_catalog.publish.MAX_PACKAGE_SIZE", 64):
             with self.assertRaisesRegex(PackageValidationError, "100 MiB expanded"):
+                self.build()
+
+    def test_chunks_archive_at_configured_boundaries(self):
+        with patch("app_catalog.publish.CHUNK_SIZE", 64):
+            release = self.build()
+
+        self.assertGreater(len(release.chunks), 1)
+        self.assertTrue(all(0 < len(chunk) <= 64 for chunk in release.chunks))
+        self.assertEqual(
+            release.manifest["chunk_hashes"],
+            [hashlib.sha256(chunk).hexdigest() for chunk in release.chunks],
+        )
+
+    def test_rejects_manifest_over_configured_limit(self):
+        with patch("app_catalog.publish.MAX_MANIFEST_SIZE", 16):
+            with self.assertRaisesRegex(PackageValidationError, "manifest exceeds"):
                 self.build()
 
     def test_validates_registry_paths_and_unique_ids(self):

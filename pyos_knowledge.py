@@ -74,7 +74,7 @@ Every app must be usable without a mouse. Controls are announced when focus reac
 
 Settings can switch enhanced mode on with the key enhanced_mode in config.json. Enhanced mode suppresses the extra focus chatter PyOS would otherwise speak, so a screen reader such as NVDA or VoiceOver announces controls in its own words instead of the user hearing everything twice."""
 
-_APPS_INTRO = """PyOS discovers the apps in its apps folder at startup and lists every one on the desktop, so the exact catalogue depends on the installation. Apps that ship with PyOS include:
+_APPS_INTRO = """PyOS discovers bundled apps and per-user installed app packages at startup and lists them on the desktop, so the exact catalogue depends on the installation. Apps that ship with PyOS include:
 - Terminal: the command line for the PyOS Drive.
 - File Explorer: browses This PC, with the PyOS Drive and Host Files.
 - Text Editor: opens, edits and saves text files.
@@ -85,7 +85,8 @@ _APPS_INTRO = """PyOS discovers the apps in its apps folder at startup and lists
 - Encryption, YouTube Player and Music Player.
 - Platform Diagnostics: which speech backends, host shells, and optional parts are available on this machine.
 - Help Center: user and developer guides, read aloud.
-- AI Assistant: this chat window."""
+- AI Assistant: this chat window.
+- PyOS App Catalog: install maintainer-signed apps when configured."""
 
 _TERMINAL_INTRO = """Terminal talks to the kernel that manages the PyOS Drive. Type a command and press Enter; the result is spoken and also written to the window. Commands are not case sensitive.
 
@@ -101,7 +102,7 @@ _TERMINAL_INTRO = """Terminal talks to the kernel that manages the PyOS Drive. T
 
 shutdown and reboot are recognised commands, but both refuse on purpose to protect the host computer. The host shells available on this computer are: {shells}."""
 
-_WRITING_APPS = """A PyOS app is a single Python file in the apps folder. PyOS scans that folder at startup and loads every class that inherits from BlindApp in api.py, so no registration step is needed. A minimal app looks like this:
+_WRITING_APPS = """A bundled PyOS app is a single Python file in the apps folder. PyOS scans that folder at startup and loads every class that inherits from BlindApp in api.py, so no registration step is needed. A minimal app looks like this:
 
 import wx
 from api import BlindApp
@@ -132,7 +133,9 @@ An app reaches the rest of PyOS through self.api, the system API:
 - is_enhanced_mode() and set_enhanced_mode(enabled): read or change enhanced mode.
 - get_support_report() and format_support_report(): what this machine can do.
 
-Conventions worth following: bind wx.EVT_CLOSE to the app's on_close and call super().on_close(event) so focus returns to the desktop; speak something whenever focus lands on a control; call play_sound rather than playing audio directly so the user's chosen sound theme applies; use open_file and save_file for both the PyOS Drive and host files; and use Python's own os module for host file work rather than get_vfs, which manages the PyOS Drive only.
+Bind wx.EVT_CLOSE to on_close and call super().on_close(event) to return focus; announce focused controls; use themed play_sound and shared file pickers; use os for host files and get_vfs only for the PyOS Drive.
+
+Catalog apps are per-user packages with a package-root ``__init__.py`` and relative imports. PyOS verifies signatures and hashes and asks before install; plugins are unsandboxed Python with host-file and network access.
 
 The full reference is in apps/DEVELOPER_GUIDE.md, which the Help Center reads aloud."""
 

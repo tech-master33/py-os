@@ -270,6 +270,19 @@ class CatalogClientTests(unittest.TestCase):
         with self.assertRaises(CatalogResponseError):
             client.list_apps()
 
+    def test_rejects_malformed_json_and_invalid_app_ids(self):
+        client = CatalogClient(
+            "https://catalog.example",
+            self.encoded_key,
+            session=FakeSession(
+                {"https://catalog.example/v1/apps": FakeResponse(200, b"{not json")}
+            ),
+        )
+        with self.assertRaises(CatalogResponseError):
+            client.list_apps()
+        with self.assertRaises(CatalogResponseError):
+            client.get_app("../outside")
+
     def test_rejects_catalog_record_over_100_mib(self):
         record, manifest, signature, chunks = make_release(self.key)
         record["package_size"] = 100 * 1024 * 1024 + 1
@@ -289,10 +302,42 @@ class CatalogClientTests(unittest.TestCase):
             with self.assertRaises(CatalogResponseError):
                 client.download_verified(record, directory)
             self.assertEqual(list(Path(directory).iterdir()), [])
-
             session.responses[chunk_url] = FakeResponse(200, b"x" * (CHUNK_SIZE + 1))
             with self.assertRaises(CatalogResponseError):
                 client.download_verified(record, directory)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_extraction_rejects_undeclared_archive_files(self):
+        record, manifest, signature, chunks = make_release(self.key)
+        file_contents = {
+            "__init__.py": b"from .greeting import greeting\n",
+            "greeting.py": b"greeting = 'hello'\n",
+            "data/welcome.txt": b"Welcome!\n",
+            "unlisted.py": b"unsafe = True\n",
+        }
+        archive_stream = BytesIO()
+        with zipfile.ZipFile(archive_stream, "w", zipfile.ZIP_DEFLATED) as archive:
+            for filename, content in file_contents.items():
+                archive.writestr(filename, content)
+        archive_bytes = archive_stream.getvalue()
+        chunks = [
+            archive_bytes[offset : offset + CHUNK_SIZE]
+            for offset in range(0, len(archive_bytes), CHUNK_SIZE)
+        ]
+        manifest["archive_size"] = len(archive_bytes)
+        manifest["archive_sha256"] = hashlib.sha256(archive_bytes).hexdigest()
+        manifest["chunk_hashes"] = [
+            hashlib.sha256(chunk).hexdigest() for chunk in chunks
+        ]
+        signature = base64.b64encode(self.key.sign(canonical_json(manifest))).decode("ascii")
+        record["package_size"] = len(archive_bytes)
+        record["chunk_count"] = len(chunks)
+        client, _ = self.make_client(record, manifest, signature, chunks)
+
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(CatalogVerificationError, "undeclared file"):
+                client.download_verified(record, directory)
+            self.assertFalse((Path(directory) / record["id"]).exists())
             self.assertEqual(list(Path(directory).iterdir()), [])
 
     def test_downloads_large_package_in_bounded_chunks(self):
