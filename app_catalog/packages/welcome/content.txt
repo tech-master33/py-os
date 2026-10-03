@@ -1,0 +1,1 @@
+This package contains multiple Python files and an app data file.

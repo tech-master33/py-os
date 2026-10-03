@@ -1,0 +1,14 @@
+{
+  "apps": [
+    {
+      "id": "welcome",
+      "name": "Welcome",
+      "description": "A small example app demonstrating a multi-file PyOS package.",
+      "package": "app_catalog/packages/welcome",
+      "entry_point": "__init__.py",
+      "version": "1.0.0",
+      "min_pyos_version": "1.0.0",
+      "release_notes": "Initial reviewed example release."
+    }
+  ]
+}
