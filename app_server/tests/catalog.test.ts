@@ -527,7 +527,15 @@ describe("catalog Worker", () => {
     );
     expect(inventory.status).toBe(200);
     expect(await inventory.json()).toEqual({
-      versions: [{ app_id: "sample-app", version: "1.0.0", chunk_count: 1 }],
+      versions: [
+        {
+          app_id: "sample-app",
+          version: "1.0.0",
+          chunk_count: 1,
+          storage_shard: -1,
+          legacy_chunk_count: 1,
+        },
+      ],
     });
     const hiddenInventory = await request("/v1/admin/storage-migrations");
     expect(hiddenInventory.status).toBe(401);

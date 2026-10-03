@@ -99,6 +99,8 @@ def migrate_legacy_chunks(
         release_id = release.get("app_id")
         release_version = release.get("version")
         chunk_count = release.get("chunk_count")
+        storage_shard = release.get("storage_shard")
+        legacy_chunk_count = release.get("legacy_chunk_count")
         if (
             not isinstance(release_id, str)
             or re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?", release_id) is None
@@ -111,6 +113,12 @@ def migrate_legacy_chunks(
             or not isinstance(chunk_count, int)
             or isinstance(chunk_count, bool)
             or not 1 <= chunk_count <= 100
+            or not isinstance(storage_shard, int)
+            or isinstance(storage_shard, bool)
+            or not -1 <= storage_shard <= 6
+            or not isinstance(legacy_chunk_count, int)
+            or isinstance(legacy_chunk_count, bool)
+            or not 0 <= legacy_chunk_count <= chunk_count
         ):
             raise MigrationError("catalog migration returned an invalid version record")
         if (app_id is not None and release_id != app_id) or (
@@ -119,27 +127,31 @@ def migrate_legacy_chunks(
             continue
 
         path = f"/v1/admin/storage-migrations/{release_id}/{release_version}"
-        for index in range(chunk_count):
+        changed = False
+        if storage_shard == -1:
+            for index in range(chunk_count):
+                response = _request(
+                    session,
+                    "put",
+                    f"{base}{path}/chunks/{index}",
+                    headers=headers,
+                    timeout=(10, 60),
+                    allow_redirects=False,
+                )
+                _require_status(response, {204}, f"copy chunk {index} for {release_id} {release_version}")
+
             response = _request(
                 session,
-                "put",
-                f"{base}{path}/chunks/{index}",
+                "post",
+                f"{base}{path}/finalize",
                 headers=headers,
                 timeout=(10, 60),
                 allow_redirects=False,
             )
-            _require_status(response, {204}, f"copy chunk {index} for {release_id} {release_version}")
+            _require_status(response, {200}, f"finalize {release_id} {release_version}")
+            changed = True
 
-        response = _request(
-            session,
-            "post",
-            f"{base}{path}/finalize",
-            headers=headers,
-            timeout=(10, 60),
-            allow_redirects=False,
-        )
-        _require_status(response, {200}, f"finalize {release_id} {release_version}")
-        if prune_legacy:
+        if prune_legacy and legacy_chunk_count > 0:
             response = _request(
                 session,
                 "post",
@@ -149,7 +161,8 @@ def migrate_legacy_chunks(
                 allow_redirects=False,
             )
             _require_status(response, {200}, f"remove legacy chunks for {release_id} {release_version}")
-        migrated += 1
+            changed = True
+        migrated += int(changed)
 
     return migrated
 

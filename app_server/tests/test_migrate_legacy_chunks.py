@@ -45,7 +45,15 @@ class FakeSession:
 class MigrationTests(unittest.TestCase):
     base_url = "https://catalog.example"
     inventory = {
-        "versions": [{"app_id": "welcome", "version": "1.0.0", "chunk_count": 2}]
+        "versions": [
+            {
+                "app_id": "welcome",
+                "version": "1.0.0",
+                "chunk_count": 2,
+                "storage_shard": -1,
+                "legacy_chunk_count": 2,
+            }
+        ]
     }
 
     def test_migrates_chunks_in_order_and_finalizes_after_all_succeed(self):
@@ -127,6 +135,52 @@ class MigrationTests(unittest.TestCase):
             1,
         )
         self.assertTrue(session.calls[-1][1].endswith("/cleanup"))
+
+    def test_prunes_a_previously_migrated_release_without_recopying(self):
+        inventory = {
+            "versions": [
+                {
+                    "app_id": "welcome",
+                    "version": "1.0.0",
+                    "chunk_count": 2,
+                    "storage_shard": 0,
+                    "legacy_chunk_count": 2,
+                }
+            ]
+        }
+        session = FakeSession([FakeResponse(200, inventory), FakeResponse(200)])
+
+        self.assertEqual(
+            migrate_legacy_chunks(
+                self.base_url,
+                "secret",
+                prune_legacy=True,
+                session=session,
+            ),
+            1,
+        )
+        self.assertEqual([call[0] for call in session.calls], ["get", "post"])
+        self.assertTrue(session.calls[-1][1].endswith("/cleanup"))
+
+    def test_skips_previously_migrated_release_when_retaining_legacy_copy(self):
+        inventory = {
+            "versions": [
+                {
+                    "app_id": "welcome",
+                    "version": "1.0.0",
+                    "chunk_count": 2,
+                    "storage_shard": 0,
+                    "legacy_chunk_count": 2,
+                }
+            ]
+        }
+        session = FakeSession([FakeResponse(200, inventory)])
+
+        self.assertEqual(
+            migrate_legacy_chunks(self.base_url, "secret", session=session),
+            0,
+        )
+        self.assertEqual(len(session.calls), 1)
 
     def test_filters_app_and_version(self):
         session = FakeSession([FakeResponse(200, self.inventory)])

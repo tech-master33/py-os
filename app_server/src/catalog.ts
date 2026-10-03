@@ -998,11 +998,23 @@ async function listLegacyMigrations(request: Request, env: CatalogEnv): Promise<
     return json({ error: "unauthorized" }, 401);
   }
   const versions = await env.DB.prepare(
-    `SELECT app_id, version, chunk_count
-       FROM app_versions
-      WHERE status = 'published' AND storage_shard = -1
-      ORDER BY app_id, version`,
-  ).all<{ app_id: string; version: string; chunk_count: number }>();
+    `SELECT v.app_id, v.version, v.chunk_count, v.storage_shard,
+            (SELECT COUNT(*) FROM app_chunks AS c
+              WHERE c.app_id = v.app_id AND c.version = v.version) AS legacy_chunk_count
+       FROM app_versions AS v
+      WHERE v.status = 'published'
+        AND (v.storage_shard = -1 OR EXISTS (
+          SELECT 1 FROM app_chunks AS c
+           WHERE c.app_id = v.app_id AND c.version = v.version
+        ))
+      ORDER BY v.app_id, v.version`,
+  ).all<{
+    app_id: string;
+    version: string;
+    chunk_count: number;
+    storage_shard: number;
+    legacy_chunk_count: number;
+  }>();
   return json({ versions: versions.results });
 }
 

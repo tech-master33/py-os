@@ -42,7 +42,7 @@
 
 - `CatalogEnv` includes `DB: D1Database` and optional `APP_DB_0` through `APP_DB_6` bindings. Production config supplies all seven; staging continues using only its legacy DB.
 - `app_versions.storage_shard` is `-1` for legacy chunks still in the metadata DB or `0` through `6` for a package shard. New releases store their shard before receiving chunks.
-- `GET /v1/admin/storage-migrations` requires the publish token and lists every published version still using legacy storage.
+- `GET /v1/admin/storage-migrations` requires the publish token and lists published versions that still have legacy chunk rows, including `storage_shard` and `legacy_chunk_count`.
 - `PUT /v1/admin/storage-migrations/{app_id}/{version}/chunks/{index}` copies one existing chunk from the legacy `DB.app_chunks` table to that version's deterministic package shard after checking its signed manifest digest. It is idempotent for identical bytes.
 - `POST /v1/admin/storage-migrations/{app_id}/{version}/finalize` updates the version's `storage_shard` only after the target shard contains all manifest-declared chunks with expected digests. Until finalize succeeds, `storage_shard = -1` and public downloads continue using legacy `DB.app_chunks`.
 - `POST /v1/admin/storage-migrations/{app_id}/{version}/cleanup` removes legacy chunks only after migration is finalized and the package shard contains exactly the expected indexes, digests, and chunk sizes; the CLI exposes this only through the explicit `--prune-legacy` option after install verification.
@@ -70,7 +70,7 @@
 - [x] **Step 3: Add shard metadata and package-only schema.** Add `storage_shard INTEGER NOT NULL DEFAULT -1 CHECK (storage_shard BETWEEN -1 AND 6)` to `app_versions`. Create the package-only `app_chunks` table with `(app_id, version, chunk_index)` primary key, digest, and BLOB columns; do not create `apps` or `app_versions` in package databases. Configure `APP_DB_0` through `APP_DB_6` for local Worker tests and production only, not staging.
 - [x] **Step 4: Route publish and download chunks through their D1 shard.** Implement unsigned 32-bit FNV-1a over UTF-8 app ID bytes, selecting `hash % 7`. Save the shard index in `app_versions` when starting a release. Use that saved index for chunk upload and fetch. Verify chunk size and SHA-256 before inserting, and do not add package BLOB writes to `DB`.
 - [x] **Step 5: Run Worker type-check and tests.** Run `Set-Location app_server; npx tsc --noEmit; npm test -- --run`. Expected: all existing tests and new shard-routing tests pass.
-- [ ] **Step 6: Commit Worker storage routing.** Commit the shared Worker source and migrations together with the migration routes in Task 2.
+- [x] **Step 6: Commit Worker storage routing.** Commit the shared Worker source and migrations together with the migration routes in Task 2.
 
 ## Task 2: Add safe migration for existing production chunks
 
@@ -88,10 +88,10 @@
 - [x] **Step 1: Write failing migration route tests.** Test an authorized copy of an expected chunk, rejection of a wrong chunk digest, rejection of an invalid index, idempotent retry of the same chunk, refusal to finalize with a missing chunk, and switching `storage_shard` only after every target chunk matches the signed manifest.
 - [x] **Step 2: Run the targeted Worker test and confirm the migration routes fail.** Run `Set-Location app_server; npm test -- --run`. Expected: new migration route tests fail with 404 until the routes exist.
 - [x] **Step 3: Implement authenticated inventory, one-chunk migration, guarded finalize, and cleanup.** Require the existing publish token on all admin routes. Inventory lists published legacy versions only. The chunk route reads a source row from `DB`, validates stored and recomputed digests against `manifest.chunk_hashes[index]`, then insert-or-compares the BLOB in the mapped package D1. Finalize verifies target row count, all indexes, stored digests, and expected sizes before changing `storage_shard` from `-1` to the target index. Cleanup removes legacy rows only for a finalized complete version.
-- [x] **Step 4: Implement the resumable migration CLI.** Accept `--base-url`, `--token-env`, `--app-id`/`--version` filters, and an opt-in `--prune-legacy` flag. Fetch the authenticated inventory, send each chunk index to the migration endpoint with redirects disabled, then finalize. Only after a separately verified client install should operators pass `--prune-legacy`; do not accept tokens on the command line, print tokens, or finalize after any failed upload. Make reruns safe.
+- [x] **Step 4: Implement the resumable migration CLI.** Accept `--base-url`, `--token-env`, `--app-id`/`--version` filters, and an opt-in `--prune-legacy` flag. Fetch the authenticated inventory, migrate/finalize only releases still assigned to legacy storage, and prune already-migrated releases only when requested. Only after a separately verified client install should operators pass `--prune-legacy`; do not accept tokens on the command line, print tokens, or finalize after any failed upload. Make reruns safe.
 - [x] **Step 5: Test migration client behavior.** Use mocked HTTP to verify chunk-index order, bounded one-chunk requests, retry after a timeout, explicit non-2xx failure, redirect rejection, and no finalize request when a chunk upload fails.
 - [x] **Step 6: Run Python and Worker migration tests.** Run `python -m unittest app_server.tests.test_migrate_legacy_chunks -v` from repository root and `Set-Location app_server; npm test -- --run`.
-- [ ] **Step 7: Commit migration tooling.** Commit the migration routes, CLI, tests and operations README together with Task 1's shared Worker source.
+- [x] **Step 7: Commit migration tooling.** Commit the migration routes, CLI, tests and operations README together with Task 1's shared Worker source.
 
 ## Task 3: Provision and configure production package and core databases
 
@@ -109,7 +109,7 @@
 - [x] **Step 4: Apply package-only schema to all seven app resources.** For each index `0` through `6`, run `npx wrangler d1 migrations apply pyos-app-catalog-apps-<index> --remote --env production`; verify Wrangler reports only `0001_app_chunks.sql`. Do not apply a migration to `pyos-core-components`.
 - [x] **Step 5: Validate resolved deployment bindings without publishing.** Run `npx wrangler deploy --env production --dry-run` and inspect the displayed names to confirm all seven package databases plus metadata DB appear, with no staging or reserved core database bound to production.
 - [x] **Step 6: Document actual allocation and hard limits.** Record that the account now uses 10 of 10 free database slots: one staging DB, one production metadata DB, seven production app-package DBs, and one reserved core-components DB. State that the total remains capped at 5 GB and each database at 500 MB.
-- [ ] **Step 7: Commit production resource configuration.** Run `git add app_server/wrangler.jsonc app_server/README.md; git commit -m "chore: configure production D1 package shards"`.
+- [x] **Step 7: Commit production resource configuration.** The package D1 bindings and operations instructions are included with the implementation commit.
 
 ## Task 4: Cut production over and verify catalog operations
 
@@ -120,8 +120,8 @@
 - Consumes: deployed production Worker with seven package bindings and the authenticated migration CLI.
 - Produces: migrated existing releases, production smoke-test evidence, and a documented rollback procedure that does not discard the legacy chunks until the new path is proven.
 
-- [ ] **Step 1: Run all local validation before remote deployment.** Run `python -m unittest app_server.tests.test_migrate_legacy_chunks -v`, then `Set-Location app_server; npx tsc --noEmit; npm test -- --run; npx wrangler deploy --env production --dry-run`. Stop on any failure.
-- [ ] **Step 2: Apply the additive metadata migration.** Run `npx wrangler d1 migrations apply pyos-app-catalog --remote --env production` and verify the `storage_shard` migration completes without deleting legacy chunks.
+- [x] **Step 1: Run all local validation before remote deployment.** Run `python -m unittest app_server.tests.test_migrate_legacy_chunks -v`, then `Set-Location app_server; npx tsc --noEmit; npm test -- --run; npx wrangler deploy --env production --dry-run`. Stop on any failure.
+- [x] **Step 2: Apply the additive metadata migration.** Run `npx wrangler d1 migrations apply pyos-app-catalog --remote --env production` and verify the `storage_shard` migration completes without deleting legacy chunks.
 - [ ] **Step 3: Deploy shard-aware Worker and migrate current versions.** Run `npm run deploy:production`; then load the production publish token from its local secret file into `APP_CATALOG_PUBLISH_TOKEN` and run the migration CLI against `https://pyos-app-catalog.tech-chat.workers.dev`. Do not echo the token or put it in command arguments.
 - [ ] **Step 4: Verify migration before any cleanup.** Confirm every published version finalizes, production `/v1/apps`, detail, manifest, and chunk routes return the existing signed release, the client downloads and verifies it, each package D1 contains the corresponding chunks, and production metadata D1 contains no package BLOB rows for migrated versions.
 - [ ] **Step 5: Publish and verify a new package version.** Publish a reviewed new sample version through the standard publisher. Confirm its manifest is stored in production `DB`, its chunk rows exist only in the selected package D1, and the production PyOS client installs it successfully.
