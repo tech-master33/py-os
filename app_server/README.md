@@ -15,6 +15,68 @@ public verification key; private signing keys and publish tokens are stored outs
 repository under `%APPDATA%\\PyOS` on the maintainer machine. Keep those files backed up
 securely; never commit or send them.
 
+## Production D1 allocation
+
+The production storage layout uses the existing `pyos-app-catalog` D1 for catalog
+records, signed manifests, release pointers, and publishing metadata. Package ZIP chunks
+are sharded across seven dedicated app-package D1 databases. The eighth additional D1 is
+reserved, schema-free and not bound to the catalog Worker, for a future PyOS core
+component-update system that may distribute individual `.py` files. Staging continues
+to use only `pyos-app-catalog-staging`.
+
+The layout uses all ten Free D1 database slots: one staging database, one production
+metadata database, seven app-package databases, and one reserved core-components
+database. This does **not** raise the Free account's aggregate 5 GB storage allowance;
+each database is also limited to 500 MB. Capacity must be monitored across the account,
+not treated as eight extra 500 MB allowances. Do not bind the reserved core database to
+the app catalog or create its schema until the core-update feature is designed.
+
+App chunks use stable FNV-1a assignment based on app ID across seven package databases.
+The release's assigned shard number is persisted with its signed manifest and reused for
+every chunk upload and download. Existing production releases remain readable from the
+legacy metadata database until the authenticated migration has copied and verified their
+chunks. Run the migration tool without `--prune-legacy` first; only use that flag after
+the production client has successfully downloaded and installed each migrated release.
+The cleanup route refuses to delete legacy chunks until the version points at its shard
+and every expected chunk index, digest, and size is present there.
+
+Before provisioning, confirm the account has room for eight additional databases:
+
+```powershell
+npx wrangler d1 list
+npx wrangler d1 create pyos-app-catalog-apps-0
+npx wrangler d1 create pyos-app-catalog-apps-1
+npx wrangler d1 create pyos-app-catalog-apps-2
+npx wrangler d1 create pyos-app-catalog-apps-3
+npx wrangler d1 create pyos-app-catalog-apps-4
+npx wrangler d1 create pyos-app-catalog-apps-5
+npx wrangler d1 create pyos-app-catalog-apps-6
+npx wrangler d1 create pyos-core-components
+```
+
+Use the returned IDs only in the production bindings in `wrangler.jsonc`; do not add
+package shards to staging. Apply `migrations/package_storage` to each app-package D1,
+but leave `pyos-core-components` empty. The metadata D1 uses `migrations`, including
+`0002_storage_shard.sql`. Keep all old chunk rows until the sharded Worker, signed
+download, and install flow have passed production checks.
+
+To migrate existing releases, load the production publish token from its local file into
+the process environment without printing it:
+
+```powershell
+$secretDir = Join-Path $env:APPDATA 'PyOS'
+$env:APP_CATALOG_PUBLISH_TOKEN = (
+  Get-Content -Raw (Join-Path $secretDir 'app-catalog-production.token')
+).Trim()
+python -m app_server.scripts.migrate_legacy_chunks `
+  --base-url https://pyos-app-catalog.tech-chat.workers.dev
+```
+
+The command copies and finalizes all published releases still in legacy storage, but
+retains their old copies. After successful client verification, rerun it with
+`--prune-legacy` to delete the migrated package BLOB rows from the metadata database.
+This cleanup is per release; it does not drop the legacy table.
+
 ## Local development
 
 Requirements: Node.js 22 or newer and npm. From the repository root:

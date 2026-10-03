@@ -43,6 +43,48 @@
           "database_name": "pyos-app-catalog",
           "database_id": "132a015c-15f0-4c59-92b1-64a3f7eb7fa3",
           "migrations_dir": "migrations"
+        },
+        {
+          "binding": "APP_DB_0",
+          "database_name": "pyos-app-catalog-apps-0",
+          "database_id": "c69f84d0-80c9-4675-88ef-f40619848a77",
+          "migrations_dir": "migrations/package_storage"
+        },
+        {
+          "binding": "APP_DB_1",
+          "database_name": "pyos-app-catalog-apps-1",
+          "database_id": "fc40e349-0ccb-4ae1-ae95-f60e3ac0c044",
+          "migrations_dir": "migrations/package_storage"
+        },
+        {
+          "binding": "APP_DB_2",
+          "database_name": "pyos-app-catalog-apps-2",
+          "database_id": "59750f09-f4af-4a94-81b2-1a2fdd8b920a",
+          "migrations_dir": "migrations/package_storage"
+        },
+        {
+          "binding": "APP_DB_3",
+          "database_name": "pyos-app-catalog-apps-3",
+          "database_id": "4bca4870-0ac8-492c-aa29-1dd8d46043fd",
+          "migrations_dir": "migrations/package_storage"
+        },
+        {
+          "binding": "APP_DB_4",
+          "database_name": "pyos-app-catalog-apps-4",
+          "database_id": "d1039118-b82e-4bbf-a2fb-51a5f8a2ca0d",
+          "migrations_dir": "migrations/package_storage"
+        },
+        {
+          "binding": "APP_DB_5",
+          "database_name": "pyos-app-catalog-apps-5",
+          "database_id": "876cfe46-8b0f-47e1-9da4-a431d8d58ad3",
+          "migrations_dir": "migrations/package_storage"
+        },
+        {
+          "binding": "APP_DB_6",
+          "database_name": "pyos-app-catalog-apps-6",
+          "database_id": "4839d5a5-3d8c-41f8-9c35-dcf4ebc212c1",
+          "migrations_dir": "migrations/package_storage"
         }
       ]
     }

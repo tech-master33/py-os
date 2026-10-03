@@ -1,0 +1,60 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pyos-app-catalog-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-22",
+  "workers_dev": false,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pyos-app-catalog-test",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    },
+    {
+      "binding": "APP_DB_0",
+      "database_name": "pyos-app-catalog-test-apps-0",
+      "database_id": "10000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations/package_storage"
+    },
+    {
+      "binding": "APP_DB_1",
+      "database_name": "pyos-app-catalog-test-apps-1",
+      "database_id": "10000000-0000-0000-0000-000000000001",
+      "migrations_dir": "migrations/package_storage"
+    },
+    {
+      "binding": "APP_DB_2",
+      "database_name": "pyos-app-catalog-test-apps-2",
+      "database_id": "10000000-0000-0000-0000-000000000002",
+      "migrations_dir": "migrations/package_storage"
+    },
+    {
+      "binding": "APP_DB_3",
+      "database_name": "pyos-app-catalog-test-apps-3",
+      "database_id": "10000000-0000-0000-0000-000000000003",
+      "migrations_dir": "migrations/package_storage"
+    },
+    {
+      "binding": "APP_DB_4",
+      "database_name": "pyos-app-catalog-test-apps-4",
+      "database_id": "10000000-0000-0000-0000-000000000004",
+      "migrations_dir": "migrations/package_storage"
+    },
+    {
+      "binding": "APP_DB_5",
+      "database_name": "pyos-app-catalog-test-apps-5",
+      "database_id": "10000000-0000-0000-0000-000000000005",
+      "migrations_dir": "migrations/package_storage"
+    },
+    {
+      "binding": "APP_DB_6",
+      "database_name": "pyos-app-catalog-test-apps-6",
+      "database_id": "10000000-0000-0000-0000-000000000006",
+      "migrations_dir": "migrations/package_storage"
+    }
+  ],
+  "vars": {
+    "PUBLISH_PUBLIC_KEY": ""
+  }
+}

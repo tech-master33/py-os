@@ -23,6 +23,11 @@ const manifest = {
 };
 
 async function seedVersion(status: "pending" | "published") {
+  const signature = await crypto.subtle.sign(
+    { name: "Ed25519" },
+    signingKeyPair.privateKey,
+    new TextEncoder().encode(canonicalJson(manifest)),
+  );
   await env.DB.prepare(
     `INSERT INTO apps (id, name, description, version, min_pyos_version, published_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
@@ -32,15 +37,15 @@ async function seedVersion(status: "pending" | "published") {
 
   await env.DB.prepare(
     `INSERT INTO app_versions
-       (app_id, version, status, manifest, signature, package_size, expanded_size, chunk_count, created_at, published_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (app_id, version, status, manifest, signature, package_size, expanded_size, chunk_count, storage_shard, created_at, published_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, -1, ?, ?)`,
   )
     .bind(
       "sample-app",
       "1.0.0",
       status,
       JSON.stringify(manifest),
-      "test-signature",
+      toBase64(new Uint8Array(signature)),
       5,
       8,
       1,
@@ -64,6 +69,7 @@ async function seedVersion(status: "pending" | "published") {
 
 let signingKeyPair: CryptoKeyPair;
 let encodedPublicKey = "";
+const appEnv = env as AppEnv;
 
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) {
@@ -141,7 +147,8 @@ async function request(
   envOverrides: Partial<AppEnv> = {},
 ) {
   const workerEnv: AppEnv = {
-    DB: env.DB,
+    ...appEnv,
+    DB: appEnv.DB,
     PUBLISH_TOKEN: "test-token",
     PUBLISH_PUBLIC_KEY: encodedPublicKey,
     ...envOverrides,
@@ -167,6 +174,17 @@ describe("catalog Worker", () => {
     await env.DB.exec(
       "DELETE FROM app_chunks; DELETE FROM app_versions; DELETE FROM apps;",
     );
+    for (const shard of [
+      appEnv.APP_DB_0!,
+      appEnv.APP_DB_1!,
+      appEnv.APP_DB_2!,
+      appEnv.APP_DB_3!,
+      appEnv.APP_DB_4!,
+      appEnv.APP_DB_5!,
+      appEnv.APP_DB_6!,
+    ]) {
+      await shard.exec("DELETE FROM app_chunks;");
+    }
   });
 
   it("returns the health response as JSON", async () => {
@@ -216,7 +234,10 @@ describe("catalog Worker", () => {
     const chunkResponse = await request("/v1/apps/sample-app/1.0.0/chunks/0");
 
     expect(manifestResponse.status).toBe(200);
-    expect(await manifestResponse.json()).toEqual({ manifest, signature: "test-signature" });
+    expect(await manifestResponse.json()).toEqual({
+      manifest,
+      signature: expect.any(String),
+    });
     expect(chunkResponse.status).toBe(200);
     expect(new Uint8Array(await chunkResponse.arrayBuffer())).toEqual(
       new TextEncoder().encode("hello"),
@@ -357,6 +378,18 @@ describe("catalog Worker", () => {
       },
     );
     expect(chunkResponse.status).toBe(204);
+    const metadataChunk = await appEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM app_chunks WHERE app_id = ? AND version = ?",
+    )
+      .bind("sample-app", "2.0.0")
+      .first<{ count: number }>();
+    const packageChunk = await appEnv.APP_DB_2!.prepare(
+      "SELECT COUNT(*) AS count FROM app_chunks WHERE app_id = ? AND version = ?",
+    )
+      .bind("sample-app", "2.0.0")
+      .first<{ count: number }>();
+    expect(metadataChunk?.count).toBe(0);
+    expect(packageChunk?.count).toBe(1);
     const duplicateChunk = await request(
       "/v1/admin/releases/sample-app/2.0.0/chunks/0",
       {
@@ -398,6 +431,182 @@ describe("catalog Worker", () => {
         },
       ],
     });
+    const publicChunk = await request("/v1/apps/sample-app/2.0.0/chunks/0");
+    expect(publicChunk.status).toBe(200);
+    expect(new Uint8Array(await publicChunk.arrayBuffer())).toEqual(release.archive);
+  });
+
+  it("keeps single-DB staging releases on the metadata database", async () => {
+    const noPackageShards: Partial<AppEnv> = {
+      APP_DB_0: undefined,
+      APP_DB_1: undefined,
+      APP_DB_2: undefined,
+      APP_DB_3: undefined,
+      APP_DB_4: undefined,
+      APP_DB_5: undefined,
+      APP_DB_6: undefined,
+    };
+    const release = await createSignedRelease();
+    const start = await request(
+      "/v1/admin/releases",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ manifest: release.manifest, signature: release.signature }),
+      },
+      noPackageShards,
+    );
+    expect(start.status).toBe(201);
+
+    const upload = await request(
+      "/v1/admin/releases/sample-app/2.0.0/chunks/0",
+      {
+        method: "PUT",
+        headers: { authorization: "Bearer test-token" },
+        body: toArrayBuffer(release.archive),
+      },
+      noPackageShards,
+    );
+    expect(upload.status).toBe(204);
+    const publish = await request(
+      "/v1/admin/releases/sample-app/2.0.0/publish",
+      { method: "POST", headers: { authorization: "Bearer test-token" } },
+      noPackageShards,
+    );
+    expect(publish.status).toBe(200);
+
+    const stored = await appEnv.DB.prepare(
+      "SELECT storage_shard FROM app_versions WHERE app_id = ? AND version = ?",
+    )
+      .bind("sample-app", "2.0.0")
+      .first<{ storage_shard: number }>();
+    expect(stored?.storage_shard).toBe(-1);
+    const downloaded = await request(
+      "/v1/apps/sample-app/2.0.0/chunks/0",
+      undefined,
+      noPackageShards,
+    );
+    expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(release.archive);
+  });
+
+  it("rejects a partially configured package-shard set", async () => {
+    const release = await createSignedRelease();
+    const response = await request(
+      "/v1/admin/releases",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ manifest: release.manifest, signature: release.signature }),
+      },
+      { APP_DB_0: undefined },
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "storage_shards_incompletely_configured",
+    });
+    const count = await appEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM app_versions",
+    ).first<{ count: number }>();
+    expect(count?.count).toBe(0);
+  });
+
+  it("moves a legacy published release only after all verified chunks are copied", async () => {
+    await seedVersion("published");
+    const headers = { authorization: "Bearer test-token" };
+    const finalizeUrl = "/v1/admin/storage-migrations/sample-app/1.0.0/finalize";
+    const inventory = await request(
+      "/v1/admin/storage-migrations",
+      { headers },
+    );
+    expect(inventory.status).toBe(200);
+    expect(await inventory.json()).toEqual({
+      versions: [{ app_id: "sample-app", version: "1.0.0", chunk_count: 1 }],
+    });
+    const hiddenInventory = await request("/v1/admin/storage-migrations");
+    expect(hiddenInventory.status).toBe(401);
+
+    const pendingFinalize = await request(finalizeUrl, { method: "POST", headers });
+    expect(pendingFinalize.status).toBe(409);
+    expect(await pendingFinalize.json()).toEqual({
+      error: "migration_incomplete",
+      missing_chunks: 1,
+    });
+
+    const unauthorized = await request(
+      "/v1/admin/storage-migrations/sample-app/1.0.0/chunks/0",
+      { method: "PUT" },
+    );
+    expect(unauthorized.status).toBe(401);
+    const invalidIndex = await request(
+      "/v1/admin/storage-migrations/sample-app/1.0.0/chunks/1",
+      { method: "PUT", headers },
+    );
+    expect(invalidIndex.status).toBe(400);
+
+    await appEnv.DB.prepare(
+      "UPDATE app_chunks SET content = ? WHERE app_id = ? AND version = ? AND chunk_index = 0",
+    )
+      .bind(new TextEncoder().encode("wrong"), "sample-app", "1.0.0")
+      .run();
+    const invalidLegacyChunk = await request(
+      "/v1/admin/storage-migrations/sample-app/1.0.0/chunks/0",
+      { method: "PUT", headers },
+    );
+    expect(invalidLegacyChunk.status).toBe(503);
+    await appEnv.DB.prepare(
+      "UPDATE app_chunks SET content = ? WHERE app_id = ? AND version = ? AND chunk_index = 0",
+    )
+      .bind(new TextEncoder().encode("hello"), "sample-app", "1.0.0")
+      .run();
+
+    const copied = await request(
+      "/v1/admin/storage-migrations/sample-app/1.0.0/chunks/0",
+      { method: "PUT", headers },
+    );
+    expect(copied.status).toBe(204);
+    const duplicate = await request(
+      "/v1/admin/storage-migrations/sample-app/1.0.0/chunks/0",
+      { method: "PUT", headers },
+    );
+    expect(duplicate.status).toBe(204);
+
+    const finalized = await request(finalizeUrl, { method: "POST", headers });
+    expect(finalized.status).toBe(200);
+    expect(await finalized.json()).toEqual({ status: "migrated", storage_shard: 2 });
+    const shard = await appEnv.DB.prepare(
+      "SELECT storage_shard FROM app_versions WHERE app_id = ? AND version = ?",
+    )
+      .bind("sample-app", "1.0.0")
+      .first<{ storage_shard: number }>();
+    expect(shard?.storage_shard).toBe(2);
+
+    const cleaned = await request(
+      "/v1/admin/storage-migrations/sample-app/1.0.0/cleanup",
+      { method: "POST", headers },
+    );
+    expect(cleaned.status).toBe(200);
+    expect(await cleaned.json()).toEqual({
+      status: "legacy_chunks_removed",
+      deleted: 1,
+    });
+    const remaining = await appEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM app_chunks WHERE app_id = ? AND version = ?",
+    )
+      .bind("sample-app", "1.0.0")
+      .first<{ count: number }>();
+    expect(remaining?.count).toBe(0);
+    const downloaded = await request("/v1/apps/sample-app/1.0.0/chunks/0");
+    expect(downloaded.status).toBe(200);
+    expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(
+      new TextEncoder().encode("hello"),
+    );
   });
 
   it("rejects a modified manifest signature before creating a release", async () => {
