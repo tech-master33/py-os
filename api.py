@@ -6,7 +6,6 @@ import subprocess # For executing files
 import importlib # Import importlib for dynamic module loading
 from file_dialogs import choose_file # Import importlib for dynamic module loading
 
-from message_service import MessageService
 from app_paths import get_data_dir
 from platform_support import format_support_report, get_support_report
 
@@ -81,7 +80,6 @@ class SystemAPI:
         self.kernel = kernel
         self.engine = engine
         self.sounds = sounds
-        self.message_service = MessageService(self)
         self.data_dir = get_data_dir()
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)

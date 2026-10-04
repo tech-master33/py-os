@@ -80,7 +80,6 @@ _APPS_INTRO = """PyOS discovers bundled apps and per-user installed app packages
 - Text Editor: opens, edits and saves text files.
 - Settings, Theme Creator and Sound Settings: speech mode, sound themes and volumes.
 - Clock, Calculator, Timer, Reminders and Stopwatch.
-- Messages: spoken messages supported by the message service.
 - Audio Recorder: records and plays back audio when sounddevice and soundfile are installed.
 - Encryption, YouTube Player and Music Player.
 - Platform Diagnostics: which speech backends, host shells, and optional parts are available on this machine.

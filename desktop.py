@@ -510,14 +510,13 @@ class PyOSController:
         self.os_kernel = kernel.VirtualOS()
         self.sound_manager = sounds.SoundManager(self.data_dir)
         self.api = SystemAPI(None, self.os_kernel, speech.engine, self.sound_manager)
-        self.api.message_service.start()
         self._start_music_service()
 
     def check_integrity(self):
         critical_files = [
             "api.py", "app_paths.py", "audio_devices.py", "kernel.py",
-            "message_service.py", "platform_support.py", "sounds.py",
-            "speech.py", "oobe_wizard.py", "update_wizard.py"
+            "platform_support.py", "sounds.py", "speech.py",
+            "oobe_wizard.py", "update_wizard.py"
         ]
         missing = []
         for f in critical_files:
@@ -653,8 +652,8 @@ def wait_for_key(expected_keys=None):
 def check_system_integrity():
     critical_files = [
         "api.py", "app_paths.py", "audio_devices.py", "kernel.py",
-        "message_service.py", "platform_support.py", "sounds.py",
-        "speech.py", "oobe_wizard.py", "update_wizard.py"
+        "platform_support.py", "sounds.py", "speech.py",
+        "oobe_wizard.py", "update_wizard.py"
     ]
     missing = []
     for f in critical_files:
