@@ -17,6 +17,7 @@ venv/
 # Temporary files
 *.tmp
 app_server/.wrangler/
+app_server/node_modules/
 
 # IDE/Editor specific files (common ones)
 .vscode/
